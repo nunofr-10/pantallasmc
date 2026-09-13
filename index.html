@@ -16,6 +16,16 @@
     position:absolute;inset:0;width:100%;height:100%;border:0;object-fit:cover;background:#000;
   }
   #flash{position:fixed;inset:0;pointer-events:none;z-index:50;background:transparent;display:none;}
+  .text-stage{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;perspective:900px;}
+  .text-rotor{
+    transform-style:preserve-3d;animation-name:spin360;animation-timing-function:linear;
+    animation-iteration-count:infinite;padding:0 6vw;
+  }
+  .text-rotor span{
+    display:block;font-size:8vw;line-height:1.2;text-align:center;white-space:pre-wrap;
+    word-break:break-word;
+  }
+  @keyframes spin360{from{transform:rotateY(0deg);}to{transform:rotateY(360deg);}}
   #idle{
     position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
     gap:16px;background:var(--bg);color:var(--text);text-align:center;padding:40px;
@@ -28,11 +38,8 @@
   #idle h1{font-size:15px;font-weight:500;margin:0;letter-spacing:.02em;}
   #idle p{max-width:420px;font-size:12.5px;line-height:1.6;color:var(--dim);margin:0;}
   #idle code{color:var(--amber);font-size:12px;}
-  #status{
-    position:fixed;left:14px;bottom:12px;z-index:60;font-size:11px;color:#31465e;
-    letter-spacing:.03em;pointer-events:none;
-  }
-  #status.off{color:#7a2e2e;}
+  #idleStatus{font-size:11px;color:#31465e;letter-spacing:.03em;}
+  #idleStatus.off{color:#7a2e2e;}
   #setup{
     position:fixed;inset:0;background:var(--bg);color:var(--text);display:flex;
     align-items:center;justify-content:center;padding:40px;text-align:center;
@@ -57,8 +64,8 @@
     <div class="dot"></div>
     <h1>Sin señal de entrada</h1>
     <p>Configúralo desde <code>config.html</code>. En cuanto guardes algo ahí, esta pantalla lo mostrará sola.</p>
+    <span id="idleStatus">conectando…</span>
   </div>
-  <div id="status">conectando…</div>
 
 <script>
 (function(){
@@ -74,7 +81,7 @@
   const stage  = document.getElementById('stage');
   const idle   = document.getElementById('idle');
   const flash  = document.getElementById('flash');
-  const status = document.getElementById('status');
+  const idleStatus = document.getElementById('idleStatus');
 
   let current = null;
   let flashLoopId = null;
@@ -89,7 +96,7 @@
     const m = u.match(/(?:youtu\.be\/|v=|embed\/)([A-Za-z0-9_-]{11})/);
     return m ? m[1] : null;
   }
-  function clearStage(){ stage.innerHTML = ''; }
+  function clearStage(){ stage.innerHTML = ''; stage.style.background = '#000'; }
 
   function mountContent(url, type, t0){
     clearStage();
@@ -170,6 +177,35 @@
     stage.appendChild(f);
   }
 
+  function mountBlack(){
+    clearStage();
+    stage.style.background = '#000';
+  }
+
+  function mountText(t){
+    clearStage();
+    stage.style.background = t.bg || '#000000';
+    const durSec = Math.max(0.5, Number(t.rotateSec) || 8);
+    const delay = -((Date.now() % (durSec*1000)) / 1000);
+
+    const wrap = document.createElement('div');
+    wrap.className = 'text-stage';
+
+    const rotor = document.createElement('div');
+    rotor.className = 'text-rotor';
+    rotor.style.animationDuration = durSec + 's';
+    rotor.style.animationDelay = delay + 's';
+
+    const span = document.createElement('span');
+    span.textContent = t.content || '';
+    span.style.color = t.color || '#ffffff';
+    span.style.fontFamily = t.font || 'sans-serif';
+
+    rotor.appendChild(span);
+    wrap.appendChild(rotor);
+    stage.appendChild(wrap);
+  }
+
   function applyFlash(enabled, fSec, fMs){
     if(flashLoopId){ cancelAnimationFrame(flashLoopId); flashLoopId = null; }
     if(!enabled){ flash.style.display = 'none'; return; }
@@ -184,17 +220,25 @@
   }
 
   function applyState(s){
-    const hasContent = !!(s.url && s.url.trim());
-    idle.style.display = hasContent ? 'none' : 'flex';
+    const mode = s.mode || 'url';
+    const hasUrl = mode === 'url' && !!(s.url && s.url.trim());
+    const isActive = hasUrl || mode === 'black' || mode === 'text' || !!s.flash;
 
-    const contentKey = s.url + '|' + s.type + '|' + s.t0;
-    if(hasContent && contentKey !== current){
-      mountContent(s.url.trim(), s.type, s.t0);
-      current = contentKey;
-    } else if(!hasContent && current !== null){
+    idle.style.display = isActive ? 'none' : 'flex';
+
+    if(mode === 'black'){
+      if(current !== 'black'){ mountBlack(); current = 'black'; }
+    } else if(mode === 'text' && s.text){
+      const key = 'text|' + JSON.stringify(s.text);
+      if(current !== key){ mountText(s.text); current = key; }
+    } else if(hasUrl){
+      const key = s.url + '|' + s.type + '|' + s.t0;
+      if(current !== key){ mountContent(s.url.trim(), s.type, s.t0); current = key; }
+    } else if(current !== null){
       clearStage();
       current = null;
     }
+
     applyFlash(!!s.flash, Number(s.fSec)||0, Number(s.fMs)||0);
   }
 
@@ -207,20 +251,16 @@
         if(raw !== 'null' && raw !== lastRaw){
           lastRaw = raw;
           applyState(JSON.parse(raw));
-        } else if(raw === 'null'){
-          status.textContent = 'esperando primera configuración…';
         }
-        if(raw !== 'null'){
-          status.textContent = 'en línea';
-          status.classList.remove('off');
-        }
+        idleStatus.textContent = raw === 'null' ? 'esperando primera configuración…' : 'en línea';
+        idleStatus.classList.remove('off');
       } else {
-        status.textContent = 'el servidor respondió con error (' + res.status + ')';
-        status.classList.add('off');
+        idleStatus.textContent = 'el servidor respondió con error (' + res.status + ')';
+        idleStatus.classList.add('off');
       }
     }catch(e){
-      status.textContent = 'sin conexión, reintentando…';
-      status.classList.add('off');
+      idleStatus.textContent = 'sin conexión, reintentando…';
+      idleStatus.classList.add('off');
     }
     setTimeout(poll, 1500);
   }

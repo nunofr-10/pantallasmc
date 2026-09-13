@@ -21,16 +21,22 @@
   legend{font-size:11px;color:var(--signal);letter-spacing:.04em;padding:0 6px;}
   label{display:block;font-size:12px;color:var(--dim);margin:14px 0 6px;}
   label:first-of-type{margin-top:0;}
-  input[type=text],input[type=number],select{
+  input[type=text],input[type=number],select,textarea{
     width:100%;background:#000;border:1px solid var(--line);color:var(--text);
     padding:10px 12px;border-radius:3px;font-family:var(--mono);font-size:13px;
   }
-  input:focus,select:focus{outline:1px solid var(--signal);}
+  textarea{resize:vertical;min-height:60px;}
+  input[type=color]{
+    width:100%;height:38px;background:#000;border:1px solid var(--line);border-radius:3px;padding:2px;
+  }
+  input:focus,select:focus,textarea:focus{outline:1px solid var(--signal);}
   .row{display:flex;gap:12px;}
   .row > div{flex:1;}
   .check{display:flex;align-items:center;gap:10px;margin-top:4px;}
   .check input{width:16px;height:16px;accent-color:var(--signal);}
   .check label{margin:0;color:var(--text);font-size:13px;}
+  .subpanel{display:none;margin-top:14px;padding-top:14px;border-top:1px dashed var(--line);}
+  .subpanel.show{display:block;}
   button{
     width:100%;background:var(--signal);color:#04140c;border:0;padding:13px;
     border-radius:3px;font-family:var(--mono);font-weight:600;font-size:13px;
@@ -53,39 +59,75 @@
 <body>
 <main>
   <h1>Configuración de señal</h1>
-  <p class="sub">Cambia lo que quieras y pulsa guardar: todas las pantallas abiertas en <b>index.html</b> se actualizan solas en cuestión de segundo y medio, sin que nadie recargue nada.</p>
+  <p class="sub">Cambia lo que quieras y pulsa guardar: todas las pantallas abiertas en <b>index.html</b> se actualizan solas, sin que nadie recargue nada.</p>
 
   <div id="setup" style="display:none">
-    <p><b>Falta un paso previo:</b> esta página necesita la Database URL de un proyecto Firebase gratuito (es el "buzón" compartido entre config.html e index.html; GitHub Pages no puede guardar estado por sí solo).</p>
+    <p><b>Falta un paso previo:</b> esta página necesita la Database URL de un proyecto Firebase gratuito.</p>
     <ol>
       <li>Entra en <code>console.firebase.google.com</code> y crea un proyecto (gratis, sin tarjeta).</li>
-      <li>En el menú, ve a <b>Realtime Database</b> → <b>Crear base de datos</b> (modo prueba).</li>
-      <li>Copia la URL que aparece arriba, tipo <code>https://tu-proyecto-default-rtdb.europe-west1.firebasedatabase.app</code>.</li>
-      <li>Pégala en la constante <code>DB_URL</code>, al principio de <b>este archivo</b> y de <b>index.html</b>, y sube el cambio a GitHub.</li>
-      <li>En la pestaña <b>Reglas</b> de Realtime Database, pon <code>{"rules":{".read":true,".write":true}}</code> y publica (así ambas páginas pueden leer/escribir sin login; solo quien tenga la URL puede tocarlo).</li>
+      <li><b>Realtime Database</b> → <b>Crear base de datos</b> (modo prueba).</li>
+      <li>Copia la Database URL que aparece.</li>
+      <li>Pégala en la constante <code>DB_URL</code>, al principio de este archivo y de <b>index.html</b>, y sube el cambio a GitHub.</li>
+      <li>En <b>Reglas</b>, pon <code>{"rules":{".read":true,".write":true}}</code> y publica.</li>
     </ol>
-    <p>Es un paso único. Después de esto, todo funciona solo.</p>
   </div>
 
   <fieldset>
-    <legend>contenido</legend>
-    <label for="url">URL a mostrar (déjalo vacío para no mostrar nada)</label>
-    <input type="text" id="url" placeholder="https://www.youtube.com/watch?v=..." />
-    <label for="type">Tipo</label>
-    <select id="type">
-      <option value="">Detectar automáticamente</option>
-      <option value="youtube">YouTube</option>
-      <option value="video">Vídeo (mp4/webm)</option>
-      <option value="image">Imagen</option>
-      <option value="iframe">Página web genérica</option>
+    <legend>modo de pantalla</legend>
+    <label for="mode">Qué mostrar</label>
+    <select id="mode">
+      <option value="url">Web / vídeo / imagen (URL)</option>
+      <option value="black">Negro sólido</option>
+      <option value="text">Texto giratorio 3D</option>
     </select>
+
+    <div id="panelUrl" class="subpanel">
+      <label for="url">URL a mostrar</label>
+      <input type="text" id="url" placeholder="https://www.youtube.com/watch?v=..." />
+      <label for="type">Tipo</label>
+      <select id="type">
+        <option value="">Detectar automáticamente</option>
+        <option value="youtube">YouTube</option>
+        <option value="video">Vídeo (mp4/webm)</option>
+        <option value="image">Imagen</option>
+        <option value="iframe">Página web genérica</option>
+      </select>
+    </div>
+
+    <div id="panelText" class="subpanel">
+      <label for="textContent">Texto</label>
+      <textarea id="textContent" placeholder="Escribe el texto…"></textarea>
+      <div class="row">
+        <div>
+          <label for="textColor">Color del texto</label>
+          <input type="color" id="textColor" value="#ffffff" />
+        </div>
+        <div>
+          <label for="textBg">Color de fondo</label>
+          <input type="color" id="textBg" value="#000000" />
+        </div>
+      </div>
+      <label for="textFont">Fuente</label>
+      <select id="textFont">
+        <option value="sans-serif">Sans-serif</option>
+        <option value="serif">Serif</option>
+        <option value="monospace">Monospace</option>
+        <option value="'Impact',sans-serif">Impact</option>
+        <option value="'Georgia',serif">Georgia</option>
+        <option value="'Courier New',monospace">Courier New</option>
+        <option value="'Comic Sans MS',cursive">Comic Sans MS</option>
+        <option value="cursive">Cursiva genérica</option>
+      </select>
+      <label for="textSpeed">Velocidad del giro (segundos por vuelta completa)</label>
+      <input type="number" id="textSpeed" min="0.5" step="0.5" value="8" />
+    </div>
   </fieldset>
 
   <fieldset>
-    <legend>efecto blanco / negro</legend>
+    <legend>efecto blanco / negro (parpadeo)</legend>
     <div class="check">
       <input type="checkbox" id="flashEnabled" />
-      <label for="flashEnabled">Activar parpadeo (funciona aunque no haya contenido puesto)</label>
+      <label for="flashEnabled">Activar parpadeo (se superpone a cualquier modo)</label>
     </div>
     <div class="row">
       <div>
@@ -127,13 +169,29 @@
 
   const STATE_URL = DB_URL.replace(/\/$/, '') + '/estado.json';
 
+  function updatePanels(){
+    const mode = $('mode').value;
+    $('panelUrl').classList.toggle('show', mode === 'url');
+    $('panelText').classList.toggle('show', mode === 'text');
+  }
+  $('mode').addEventListener('change', updatePanels);
+  updatePanels();
+
   function fill(s){
     lastUrl = s.url || '';
+    $('mode').value = s.mode || 'url';
     $('url').value = s.url || '';
     $('type').value = s.type || '';
     $('flashEnabled').checked = !!s.flash;
     $('fSec').value = s.fSec ?? 0;
     $('fMs').value = s.fMs ?? 500;
+    const t = s.text || {};
+    $('textContent').value = t.content || '';
+    $('textColor').value = t.color || '#ffffff';
+    $('textBg').value = t.bg || '#000000';
+    $('textFont').value = t.font || 'sans-serif';
+    $('textSpeed').value = t.rotateSec || 8;
+    updatePanels();
   }
 
   async function init(){
@@ -152,14 +210,24 @@
   }
 
   $('save').addEventListener('click', async function(){
+    const mode = $('mode').value;
     const url = $('url').value.trim();
     const contentChanged = url !== lastUrl;
+
     const body = {
+      mode: mode,
       url: url,
       type: $('type').value,
       flash: $('flashEnabled').checked,
       fSec: Math.max(0, parseFloat($('fSec').value) || 0),
-      fMs: Math.max(0, parseInt($('fMs').value, 10) || 0)
+      fMs: Math.max(0, parseInt($('fMs').value, 10) || 0),
+      text: {
+        content: $('textContent').value,
+        color: $('textColor').value,
+        bg: $('textBg').value,
+        font: $('textFont').value,
+        rotateSec: Math.max(0.5, parseFloat($('textSpeed').value) || 8)
+      }
     };
 
     msg.textContent = 'Guardando…';
