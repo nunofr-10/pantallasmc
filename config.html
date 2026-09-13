@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Configuración de señal</title>
+<style>
+  :root{
+    --bg:#04070d;
+    --panel:#0a1120;
+    --line:#152238;
+    --signal:#3ddc84;
+    --amber:#e8a33d;
+    --text:#c9d6e3;
+    --dim:#5c7188;
+    --mono:'IBM Plex Mono','SFMono-Regular',Consolas,monospace;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;background:var(--bg);color:var(--text);
+    font-family:var(--mono);min-height:100vh;
+    display:flex;justify-content:center;padding:48px 20px 80px;
+  }
+  main{width:100%;max-width:640px;}
+  h1{
+    font-size:18px;font-weight:500;letter-spacing:.02em;color:var(--text);
+    margin:0 0 4px;
+  }
+  .sub{color:var(--dim);font-size:12.5px;margin:0 0 32px;line-height:1.6;max-width:480px;}
+  fieldset{
+    border:1px solid var(--line);border-radius:4px;padding:20px;margin:0 0 18px;
+  }
+  legend{
+    font-size:11px;color:var(--signal);letter-spacing:.04em;padding:0 6px;
+  }
+  label{
+    display:block;font-size:12px;color:var(--dim);margin:14px 0 6px;
+  }
+  label:first-of-type{margin-top:0;}
+  input[type=text],input[type=number],select{
+    width:100%;background:#000;border:1px solid var(--line);color:var(--text);
+    padding:10px 12px;border-radius:3px;font-family:var(--mono);font-size:13px;
+  }
+  input:focus,select:focus{outline:1px solid var(--signal);}
+  .row{display:flex;gap:12px;}
+  .row > div{flex:1;}
+  .check{
+    display:flex;align-items:center;gap:10px;margin-top:4px;
+  }
+  .check input{width:16px;height:16px;accent-color:var(--signal);}
+  .check label{margin:0;color:var(--text);font-size:13px;}
+  button{
+    width:100%;background:var(--signal);color:#04140c;border:0;
+    padding:13px;border-radius:3px;font-family:var(--mono);font-weight:600;
+    font-size:13px;letter-spacing:.03em;cursor:pointer;margin-top:6px;
+  }
+  button:hover{filter:brightness(1.08);}
+  #result{display:none;margin-top:24px;}
+  #result.show{display:block;}
+  #urlOut{
+    width:100%;background:#000;border:1px solid var(--amber);color:var(--amber);
+    padding:12px;border-radius:3px;font-size:12px;word-break:break-all;
+    font-family:var(--mono);margin-bottom:10px;
+  }
+  .actions{display:flex;gap:10px;}
+  .actions button{width:auto;flex:1;background:transparent;border:1px solid var(--line);color:var(--text);}
+  .actions button.primary{background:var(--amber);color:#1a0f00;border:0;}
+  .hint{color:var(--dim);font-size:11.5px;margin-top:10px;line-height:1.5;}
+</style>
+</head>
+<body>
+<main>
+  <h1>Configuración de señal</h1>
+  <p class="sub">Define qué se retransmite y cómo. Al generar, obtienes una URL fija: pégala tal cual en cada pantalla y todas mostrarán lo mismo en el mismo instante, sin importar cuándo la cargue cada una.</p>
+
+  <fieldset>
+    <legend>contenido</legend>
+    <label for="url">URL a mostrar</label>
+    <input type="text" id="url" placeholder="https://www.youtube.com/watch?v=..." />
+
+    <label for="type">Tipo</label>
+    <select id="type">
+      <option value="">Detectar automáticamente</option>
+      <option value="youtube">YouTube</option>
+      <option value="video">Vídeo (mp4/webm)</option>
+      <option value="image">Imagen</option>
+      <option value="iframe">Página web genérica</option>
+    </select>
+  </fieldset>
+
+  <fieldset>
+    <legend>efecto blanco / negro</legend>
+    <div class="check">
+      <input type="checkbox" id="flashEnabled" />
+      <label for="flashEnabled">Activar parpadeo</label>
+    </div>
+    <div class="row">
+      <div>
+        <label for="fSec">Segundos</label>
+        <input type="number" id="fSec" min="0" step="1" value="0" />
+      </div>
+      <div>
+        <label for="fMs">Milisegundos</label>
+        <input type="number" id="fMs" min="0" step="10" value="500" />
+      </div>
+    </div>
+    <p class="hint">Ese tiempo es cuánto dura cada color antes de cambiar (no un ciclo completo). 0s / 500ms = medio segundo en negro, medio en blanco.</p>
+  </fieldset>
+
+  <button id="generate">Generar URL de la pantalla</button>
+
+  <div id="result">
+    <input id="urlOut" readonly />
+    <div class="actions">
+      <button id="copyBtn" class="primary">Copiar URL</button>
+      <button id="openBtn">Abrir en esta pestaña</button>
+    </div>
+    <p class="hint">Pega esta URL en cada pantalla del mod. Todas comparten la misma referencia de tiempo, así que arrancarán sincronizadas aunque las cargues con horas de diferencia.</p>
+  </div>
+</main>
+
+<script>
+(function(){
+  const $ = (id) => document.getElementById(id);
+  const genBtn = $('generate');
+  const result = $('result');
+  const urlOut = $('urlOut');
+
+  genBtn.addEventListener('click', function(){
+    const url = $('url').value.trim();
+    if(!url){ $('url').focus(); return; }
+
+    const type   = $('type').value;
+    const flash  = $('flashEnabled').checked ? '1' : '0';
+    const fSec   = Math.max(0, parseFloat($('fSec').value) || 0);
+    const fMs    = Math.max(0, parseInt($('fMs').value, 10) || 0);
+    const t0     = Date.now();
+
+    const base = location.href.replace(/config\.html.*$/, 'index.html');
+    const p = new URLSearchParams();
+    p.set('c', url);
+    if(type) p.set('t', type);
+    p.set('t0', String(t0));
+    p.set('f', flash);
+    p.set('fs', String(fSec));
+    p.set('fm', String(fMs));
+
+    const finalUrl = base + '?' + p.toString();
+    urlOut.value = finalUrl;
+    result.classList.add('show');
+  });
+
+  $('copyBtn').addEventListener('click', function(){
+    urlOut.select();
+    navigator.clipboard && navigator.clipboard.writeText(urlOut.value);
+    this.textContent = 'Copiado';
+    setTimeout(()=>{ this.textContent = 'Copiar URL'; }, 1400);
+  });
+
+  $('openBtn').addEventListener('click', function(){
+    if(urlOut.value) location.href = urlOut.value;
+  });
+})();
+</script>
+</body>
+</html>
