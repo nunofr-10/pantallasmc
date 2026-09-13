@@ -24,10 +24,10 @@
     transform-style:preserve-3d;animation-name:spin360;animation-timing-function:linear;
     animation-iteration-count:infinite;padding:0 6vw;
   }
-  .text-rotor span{
-    display:block;font-size:8vw;line-height:1.2;text-align:center;white-space:pre-wrap;
-    word-break:break-word;background-repeat:no-repeat;background-size:100% 260%;
-    animation:shimmer 2.6s linear infinite;
+  .text-layers{display:grid;transform-style:preserve-3d;}
+  .text-layers span{
+    grid-area:1 / 1;display:block;font-size:8vw;line-height:1.2;text-align:center;white-space:pre-wrap;
+    word-break:break-word;backface-visibility:hidden;background-repeat:no-repeat;
   }
   @keyframes spin360{from{transform:rotateY(0deg);}to{transform:rotateY(360deg);}}
   @keyframes shimmer{0%{background-position:0% 0%;}100%{background-position:0% 260%;}}
@@ -229,6 +229,8 @@
     "'Poppins',sans-serif": 800
   };
 
+  const DEPTH_LAYERS = 10; // nº de capas que forman el grosor del texto en 3D
+
   function mountText(t){
     clearStage();
     stage.style.background = t.bg || '#000000';
@@ -237,37 +239,64 @@
 
     const wrap = document.createElement('div');
     wrap.className = 'text-stage';
+    wrap.style.filter = 'drop-shadow(0 10px 18px rgba(0,0,0,.55))'; // sombra de conjunto, fuera del contexto 3D
 
     const rotor = document.createElement('div');
     rotor.className = 'text-rotor';
     rotor.style.animationDuration = durSec + 's';
     rotor.style.animationDelay = delay + 's';
 
-    const span = document.createElement('span');
-    span.textContent = t.content || '';
+    const layers = document.createElement('div');
+    layers.className = 'text-layers';
 
+    const content = t.content || '';
     const base = t.color || '#e5e9ee';
     const font = t.font || "'Orbitron',sans-serif";
-    span.style.fontFamily = font;
-    span.style.fontWeight = FONT_WEIGHTS[font] || 900;
-    span.style.letterSpacing = '0.02em';
+    const metal = t.metal !== false; // por defecto activado
+    const weight = FONT_WEIGHTS[font] || 900;
 
-    // metal: degradado tipo cromo recortado al propio texto
-    const gradient = 'linear-gradient(180deg, ' + metallicGradient(base) + ')';
-    span.style.backgroundImage = gradient;
-    span.style.setProperty('-webkit-background-clip', 'text');
-    span.style.backgroundClip = 'text';
-    span.style.color = 'transparent';
-    span.style.setProperty('-webkit-text-fill-color', 'transparent');
+    function styleCommon(el){
+      el.textContent = content;
+      el.style.fontFamily = font;
+      el.style.fontWeight = weight;
+      el.style.letterSpacing = '0.02em';
+    }
 
-    // profundidad 3D: capas de sombra + sombra proyectada
-    const d1 = shadeColor(base, -0.35), d2 = shadeColor(base, -0.55), d3 = shadeColor(base, -0.72);
-    span.style.textShadow = '0 1px 0 ' + d1 + ', 0 2px 0 ' + d2 + ', 0 3px 1px ' + d3 + ', 0 6px 14px rgba(0,0,0,.65)';
-    span.style.filter = 'drop-shadow(0 8px 16px rgba(0,0,0,.55))';
+    // cara frontal: la que se lee de frente
+    const front = document.createElement('span');
+    styleCommon(front);
+    front.style.transform = 'translateZ(0.01px)'; // fuerza su propia capa de composición por encima del resto
 
-    rotor.appendChild(span);
+    if(metal){
+      front.style.backgroundImage = 'linear-gradient(180deg, ' + metallicGradient(base) + ')';
+      front.style.backgroundSize = '100% 260%';
+      front.style.setProperty('-webkit-background-clip', 'text');
+      front.style.backgroundClip = 'text';
+      front.style.color = 'transparent';
+      front.style.setProperty('-webkit-text-fill-color', 'transparent');
+      front.style.animation = 'shimmer 2.6s linear infinite';
+    } else {
+      front.style.color = base;
+    }
+
+    layers.appendChild(front);
+    rotor.appendChild(layers);
     wrap.appendChild(rotor);
     stage.appendChild(wrap);
+
+    // grosor real: capas apiladas hacia atrás en el eje Z, cada vez más oscuras
+    // (así el giro 3D muestra un lateral sólido, no solo una sombra pintada)
+    const fontPx = parseFloat(getComputedStyle(front).fontSize) || (window.innerWidth * 0.08);
+    const totalDepth = fontPx * 0.16;
+    const step = totalDepth / DEPTH_LAYERS;
+
+    for(let i = 1; i <= DEPTH_LAYERS; i++){
+      const layer = document.createElement('span');
+      styleCommon(layer);
+      layer.style.transform = 'translateZ(-' + (step * i).toFixed(2) + 'px)';
+      layer.style.color = shadeColor(base, -0.075 * i);
+      layers.insertBefore(layer, front);
+    }
   }
 
   function applyFlash(enabled, fSec, fMs){

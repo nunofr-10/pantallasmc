@@ -120,7 +120,11 @@
         <option value="'Montserrat',sans-serif" style="font-family:'Montserrat',sans-serif;font-weight:900;">Montserrat (moderna)</option>
         <option value="'Poppins',sans-serif" style="font-family:'Poppins',sans-serif;font-weight:800;">Poppins (redondeada)</option>
       </select>
-      <p class="hint">El texto se muestra siempre con acabado metálico 3D (a partir del color que elijas arriba) y en negrita — solo eliges el contenido, los colores, la fuente y la velocidad.</p>
+      <div class="check" style="margin-top:12px;">
+        <input type="checkbox" id="textMetal" checked />
+        <label for="textMetal">Efecto metálico (cromado, a partir del color de texto elegido)</label>
+      </div>
+      <p class="hint">El texto es 3D de verdad, con grosor: al girar se ve el lateral sólido, no un dibujo plano. Con el metálico activado el lateral se sombrea como un metal pulido; si lo desactivas, la cara frontal se queda en el color liso que elijas (el lateral sigue dando el relieve).</p>
       <label for="textSpeed">Velocidad del giro (segundos por vuelta completa)</label>
       <input type="number" id="textSpeed" min="0.5" step="0.5" value="8" />
     </div>
@@ -194,6 +198,7 @@
     $('textBg').value = t.bg || '#000000';
     $('textFont').value = t.font || "'Orbitron',sans-serif";
     if(!$('textFont').value) $('textFont').selectedIndex = 0; // por si el valor guardado ya no existe en la lista
+    $('textMetal').checked = t.metal !== false; // por defecto activado (compatible con configs guardadas antes de este ajuste)
     $('textSpeed').value = t.rotateSec || 8;
     updatePanels();
   }
@@ -230,6 +235,7 @@
         color: $('textColor').value,
         bg: $('textBg').value,
         font: $('textFont').value,
+        metal: $('textMetal').checked,
         rotateSec: Math.max(0.5, parseFloat($('textSpeed').value) || 8)
       }
     };
