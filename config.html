@@ -42,16 +42,12 @@
   #msg.ok{color:var(--signal);}
   #msg.err{color:#e0616b;}
   .hint{color:var(--dim);font-size:11.5px;margin-top:10px;line-height:1.5;}
-  #notice{
-    display:none;border:1px solid var(--amber);border-radius:4px;padding:18px;
-    margin-bottom:22px;background:#1a1206;
+  #setup{
+    border:1px solid var(--amber);border-radius:4px;padding:20px;margin-bottom:22px;background:#1a1206;
   }
-  #notice.show{display:block;}
-  #notice p{font-size:12.5px;line-height:1.7;color:var(--text);margin:0 0 10px;}
-  #notice code{
-    display:block;background:#000;color:var(--amber);padding:10px 12px;
-    border-radius:3px;font-size:13px;word-break:break-all;margin-bottom:10px;
-  }
+  #setup p{font-size:12.5px;line-height:1.7;color:var(--text);margin:0 0 10px;}
+  #setup ol{margin:0 0 10px;padding-left:20px;font-size:12.5px;line-height:1.8;color:var(--text);}
+  #setup code{color:var(--amber);}
 </style>
 </head>
 <body>
@@ -59,9 +55,16 @@
   <h1>Configuración de señal</h1>
   <p class="sub">Cambia lo que quieras y pulsa guardar: todas las pantallas abiertas en <b>index.html</b> se actualizan solas en cuestión de segundo y medio, sin que nadie recargue nada.</p>
 
-  <div id="notice">
-    <p><b>Primer uso:</b> se ha creado un buzón nuevo para esta página. Copia este ID y pégalo en la constante <code>BUCKET_ID</code>, al principio de <b>index.html</b> y de <b>config.html</b>, luego sube el cambio a GitHub. Solo hace falta hacerlo una vez.</p>
-    <code id="bucketOut"></code>
+  <div id="setup" style="display:none">
+    <p><b>Falta un paso previo:</b> esta página necesita la Database URL de un proyecto Firebase gratuito (es el "buzón" compartido entre config.html e index.html; GitHub Pages no puede guardar estado por sí solo).</p>
+    <ol>
+      <li>Entra en <code>console.firebase.google.com</code> y crea un proyecto (gratis, sin tarjeta).</li>
+      <li>En el menú, ve a <b>Realtime Database</b> → <b>Crear base de datos</b> (modo prueba).</li>
+      <li>Copia la URL que aparece arriba, tipo <code>https://tu-proyecto-default-rtdb.europe-west1.firebasedatabase.app</code>.</li>
+      <li>Pégala en la constante <code>DB_URL</code>, al principio de <b>este archivo</b> y de <b>index.html</b>, y sube el cambio a GitHub.</li>
+      <li>En la pestaña <b>Reglas</b> de Realtime Database, pon <code>{"rules":{".read":true,".write":true}}</code> y publica (así ambas páginas pueden leer/escribir sin login; solo quien tenga la URL puede tocarlo).</li>
+    </ol>
+    <p>Es un paso único. Después de esto, todo funciona solo.</p>
   </div>
 
   <fieldset>
@@ -102,29 +105,27 @@
 </main>
 
 <!-- ============================================================
-     Pega aquí el mismo ID de buzón que uses en index.html.
-     Si lo dejas vacío, esta página crea uno nuevo la primera vez.
+     Pega aquí la Database URL de tu proyecto Firebase, la misma
+     que uses en index.html. Ej:
+     "https://tu-proyecto-default-rtdb.europe-west1.firebasedatabase.app"
+     (sin barra al final)
      ============================================================ -->
-<script>let BUCKET_ID = "";</script>
+<script>const DB_URL = "";</script>
 
 <script>
 (function(){
   const $ = (id) => document.getElementById(id);
   const msg = $('msg');
-  let contentChanged = false;
   let lastUrl = '';
 
-  async function createBucket(){
-    const res = await fetch('https://kvdb.io/', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-      body: 'email=pantalla@kvdb.local'
-    });
-    if(!res.ok) throw new Error('No se pudo crear el buzón');
-    return (await res.text()).trim();
+  if(!DB_URL){
+    $('setup').style.display = 'block';
+    msg.textContent = 'Configura DB_URL antes de continuar.';
+    msg.classList.add('err');
+    return;
   }
 
-  function kvUrl(){ return 'https://kvdb.io/' + BUCKET_ID + '/estado'; }
+  const STATE_URL = DB_URL.replace(/\/$/, '') + '/estado.json';
 
   function fill(s){
     lastUrl = s.url || '';
@@ -136,57 +137,56 @@
   }
 
   async function init(){
-    if(!BUCKET_ID){
-      msg.textContent = 'Creando buzón nuevo…';
-      try{
-        BUCKET_ID = await createBucket();
-        $('bucketOut').textContent = BUCKET_ID;
-        $('notice').classList.add('show');
-      }catch(e){
-        msg.textContent = 'No se pudo crear el buzón. Revisa tu conexión e inténtalo de nuevo.';
-        msg.classList.add('err');
-        return;
-      }
-    }
     try{
-      const res = await fetch(kvUrl(), {cache:'no-store'});
-      if(res.status === 200) fill(JSON.parse(await res.text()));
-    }catch(e){ /* aún no hay estado guardado, se parte de los valores por defecto */ }
-
+      const res = await fetch(STATE_URL, {cache:'no-store'});
+      if(res.ok){
+        const raw = await res.text();
+        if(raw !== 'null') fill(JSON.parse(raw));
+      }
+      msg.textContent = 'Listo.';
+    }catch(e){
+      msg.textContent = 'No se pudo conectar con la base de datos. Revisa DB_URL y las reglas de Firebase.';
+      msg.classList.add('err');
+    }
     $('save').disabled = false;
-    msg.textContent = 'Listo.';
   }
 
   $('save').addEventListener('click', async function(){
     const url = $('url').value.trim();
-    contentChanged = url !== lastUrl;
+    const contentChanged = url !== lastUrl;
     const body = {
       url: url,
       type: $('type').value,
       flash: $('flashEnabled').checked,
       fSec: Math.max(0, parseFloat($('fSec').value) || 0),
-      fMs: Math.max(0, parseInt($('fMs').value, 10) || 0),
-      t0: contentChanged ? Date.now() : undefined
+      fMs: Math.max(0, parseInt($('fMs').value, 10) || 0)
     };
 
     msg.textContent = 'Guardando…';
     msg.classList.remove('ok','err');
     try{
-      // primero leemos t0 actual si el contenido no cambió, para no reiniciar el vídeo
-      if(!contentChanged){
+      if(contentChanged){
+        body.t0 = Date.now();
+      } else {
         try{
-          const res = await fetch(kvUrl(), {cache:'no-store'});
-          if(res.status === 200) body.t0 = JSON.parse(await res.text()).t0 || Date.now();
+          const res = await fetch(STATE_URL, {cache:'no-store'});
+          const raw = res.ok ? await res.text() : 'null';
+          body.t0 = (raw !== 'null' && JSON.parse(raw).t0) ? JSON.parse(raw).t0 : Date.now();
         }catch(e){ body.t0 = Date.now(); }
       }
-      if(!body.t0) body.t0 = Date.now();
 
-      await fetch(kvUrl(), { method: 'POST', body: JSON.stringify(body) });
+      const putRes = await fetch(STATE_URL, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body)
+      });
+      if(!putRes.ok) throw new Error('HTTP ' + putRes.status);
+
       lastUrl = url;
       msg.textContent = 'Emitido a todas las pantallas.';
       msg.classList.add('ok');
     }catch(e){
-      msg.textContent = 'No se pudo guardar. Revisa la conexión.';
+      msg.textContent = 'No se pudo guardar (' + e.message + '). Revisa DB_URL y las reglas de Firebase.';
       msg.classList.add('err');
     }
   });

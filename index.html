@@ -44,10 +44,12 @@
 <body>
 
 <!-- ============================================================
-     Pega aquí el mismo ID de buzón que generaste en config.html.
-     Debe ser idéntico en index.html y en config.html.
+     Pega aquí la Database URL de tu proyecto Firebase, la misma
+     que uses en config.html. Ej:
+     "https://tu-proyecto-default-rtdb.europe-west1.firebasedatabase.app"
+     (sin barra al final)
      ============================================================ -->
-<script>const BUCKET_ID = "61YD3xSMWvB6bybSnccJwJ";</script>
+<script>const DB_URL = "";</script>
 
   <div id="stage"></div>
   <div id="flash"></div>
@@ -60,14 +62,14 @@
 
 <script>
 (function(){
-  if(!BUCKET_ID){
+  if(!DB_URL){
     document.body.innerHTML =
-      '<div id="setup"><p>Falta configurar el ID del buzón (<code>BUCKET_ID</code>) en este archivo.'+
-      ' Ábrelo primero desde <code>config.html</code>, que lo genera y te dice qué pegar aquí.</p></div>';
+      '<div id="setup"><p>Falta configurar <code>DB_URL</code> en este archivo con la Database URL'+
+      ' de tu proyecto Firebase (la misma que pongas en <code>config.html</code>).</p></div>';
     return;
   }
 
-  const KV_URL = 'https://kvdb.io/' + BUCKET_ID + '/estado';
+  const STATE_URL = DB_URL.replace(/\/$/, '') + '/estado.json';
 
   const stage  = document.getElementById('stage');
   const idle   = document.getElementById('idle');
@@ -199,17 +201,22 @@
   let lastRaw = null;
   async function poll(){
     try{
-      const res = await fetch(KV_URL, {cache:'no-store'});
-      if(res.status === 200){
+      const res = await fetch(STATE_URL, {cache:'no-store'});
+      if(res.ok){
         const raw = await res.text();
-        if(raw !== lastRaw){
+        if(raw !== 'null' && raw !== lastRaw){
           lastRaw = raw;
           applyState(JSON.parse(raw));
+        } else if(raw === 'null'){
+          status.textContent = 'esperando primera configuración…';
         }
-        status.textContent = 'en línea';
-        status.classList.remove('off');
-      } else if(res.status === 404){
-        status.textContent = 'esperando primera configuración…';
+        if(raw !== 'null'){
+          status.textContent = 'en línea';
+          status.classList.remove('off');
+        }
+      } else {
+        status.textContent = 'el servidor respondió con error (' + res.status + ')';
+        status.classList.add('off');
       }
     }catch(e){
       status.textContent = 'sin conexión, reintentando…';
