@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Configuración de señal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Audiowide&family=Bebas+Neue&family=Montserrat:wght@900&family=Orbitron:wght@700;900&family=Poppins:wght@800&family=Russo+One&display=swap" rel="stylesheet">
 <style>
   :root{
     --bg:#04070d; --line:#152238; --signal:#3ddc84; --amber:#e8a33d;
@@ -107,17 +110,17 @@
           <input type="color" id="textBg" value="#000000" />
         </div>
       </div>
-      <label for="textFont">Fuente</label>
+      <label for="textFont">Fuente (estética, siempre en negrita)</label>
       <select id="textFont">
-        <option value="sans-serif">Sans-serif</option>
-        <option value="serif">Serif</option>
-        <option value="monospace">Monospace</option>
-        <option value="'Impact',sans-serif">Impact</option>
-        <option value="'Georgia',serif">Georgia</option>
-        <option value="'Courier New',monospace">Courier New</option>
-        <option value="'Comic Sans MS',cursive">Comic Sans MS</option>
-        <option value="cursive">Cursiva genérica</option>
+        <option value="'Orbitron',sans-serif" style="font-family:'Orbitron',sans-serif;">Orbitron (futurista)</option>
+        <option value="'Audiowide',sans-serif" style="font-family:'Audiowide',sans-serif;">Audiowide (gamer)</option>
+        <option value="'Russo One',sans-serif" style="font-family:'Russo One',sans-serif;">Russo One (impactante)</option>
+        <option value="'Anton',sans-serif" style="font-family:'Anton',sans-serif;">Anton (cartel)</option>
+        <option value="'Bebas Neue',sans-serif" style="font-family:'Bebas Neue',sans-serif;">Bebas Neue (elegante, alta)</option>
+        <option value="'Montserrat',sans-serif" style="font-family:'Montserrat',sans-serif;font-weight:900;">Montserrat (moderna)</option>
+        <option value="'Poppins',sans-serif" style="font-family:'Poppins',sans-serif;font-weight:800;">Poppins (redondeada)</option>
       </select>
+      <p class="hint">El texto se muestra siempre con acabado metálico 3D (a partir del color que elijas arriba) y en negrita — solo eliges el contenido, los colores, la fuente y la velocidad.</p>
       <label for="textSpeed">Velocidad del giro (segundos por vuelta completa)</label>
       <input type="number" id="textSpeed" min="0.5" step="0.5" value="8" />
     </div>
@@ -189,7 +192,8 @@
     $('textContent').value = t.content || '';
     $('textColor').value = t.color || '#ffffff';
     $('textBg').value = t.bg || '#000000';
-    $('textFont').value = t.font || 'sans-serif';
+    $('textFont').value = t.font || "'Orbitron',sans-serif";
+    if(!$('textFont').value) $('textFont').selectedIndex = 0; // por si el valor guardado ya no existe en la lista
     $('textSpeed').value = t.rotateSec || 8;
     updatePanels();
   }

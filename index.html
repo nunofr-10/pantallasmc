@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Señal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Audiowide&family=Bebas+Neue&family=Montserrat:wght@900&family=Orbitron:wght@700;900&family=Poppins:wght@800&family=Russo+One&display=swap" rel="stylesheet">
 <style>
   :root{
     --bg:#04070d; --line:#132033; --signal:#3ddc84; --amber:#e8a33d;
@@ -16,16 +19,18 @@
     position:absolute;inset:0;width:100%;height:100%;border:0;object-fit:cover;background:#000;
   }
   #flash{position:fixed;inset:0;pointer-events:none;z-index:50;background:transparent;display:none;}
-  .text-stage{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;perspective:900px;}
+  .text-stage{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;perspective:1200px;}
   .text-rotor{
     transform-style:preserve-3d;animation-name:spin360;animation-timing-function:linear;
     animation-iteration-count:infinite;padding:0 6vw;
   }
   .text-rotor span{
     display:block;font-size:8vw;line-height:1.2;text-align:center;white-space:pre-wrap;
-    word-break:break-word;
+    word-break:break-word;background-repeat:no-repeat;background-size:100% 260%;
+    animation:shimmer 2.6s linear infinite;
   }
   @keyframes spin360{from{transform:rotateY(0deg);}to{transform:rotateY(360deg);}}
+  @keyframes shimmer{0%{background-position:0% 0%;}100%{background-position:0% 260%;}}
   #idle{
     position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
     gap:16px;background:var(--bg);color:var(--text);text-align:center;padding:40px;
@@ -182,6 +187,48 @@
     stage.style.background = '#000';
   }
 
+  // --- utilidades para el efecto metálico ---
+  function shadeColor(hex, percent){
+    hex = String(hex || '#e5e9ee').replace('#', '');
+    if(hex.length === 3) hex = hex.split('').map(function(c){ return c+c; }).join('');
+    const num = parseInt(hex, 16) || 0xe5e9ee;
+    let r = (num >> 16) & 255, g = (num >> 8) & 255, b = num & 255;
+    if(percent >= 0){
+      r = Math.round(r + (255 - r) * percent);
+      g = Math.round(g + (255 - g) * percent);
+      b = Math.round(b + (255 - b) * percent);
+    } else {
+      const p = 1 + percent;
+      r = Math.round(r * p);
+      g = Math.round(g * p);
+      b = Math.round(b * p);
+    }
+    return 'rgb(' + r + ',' + g + ',' + b + ')';
+  }
+
+  function metallicGradient(hex){
+    return [
+      shadeColor(hex, 0.88),
+      shadeColor(hex, 0.15),
+      shadeColor(hex, -0.55),
+      shadeColor(hex, 0.4),
+      shadeColor(hex, -0.65),
+      shadeColor(hex, 0.1),
+      shadeColor(hex, 0.88)
+    ].join(', ');
+  }
+
+  // peso de fuente por familia: todas quedan en negrita, real o sintética
+  const FONT_WEIGHTS = {
+    "'Orbitron',sans-serif": 900,
+    "'Audiowide',sans-serif": 400,
+    "'Russo One',sans-serif": 400,
+    "'Anton',sans-serif": 400,
+    "'Bebas Neue',sans-serif": 700,
+    "'Montserrat',sans-serif": 900,
+    "'Poppins',sans-serif": 800
+  };
+
   function mountText(t){
     clearStage();
     stage.style.background = t.bg || '#000000';
@@ -198,8 +245,25 @@
 
     const span = document.createElement('span');
     span.textContent = t.content || '';
-    span.style.color = t.color || '#ffffff';
-    span.style.fontFamily = t.font || 'sans-serif';
+
+    const base = t.color || '#e5e9ee';
+    const font = t.font || "'Orbitron',sans-serif";
+    span.style.fontFamily = font;
+    span.style.fontWeight = FONT_WEIGHTS[font] || 900;
+    span.style.letterSpacing = '0.02em';
+
+    // metal: degradado tipo cromo recortado al propio texto
+    const gradient = 'linear-gradient(180deg, ' + metallicGradient(base) + ')';
+    span.style.backgroundImage = gradient;
+    span.style.setProperty('-webkit-background-clip', 'text');
+    span.style.backgroundClip = 'text';
+    span.style.color = 'transparent';
+    span.style.setProperty('-webkit-text-fill-color', 'transparent');
+
+    // profundidad 3D: capas de sombra + sombra proyectada
+    const d1 = shadeColor(base, -0.35), d2 = shadeColor(base, -0.55), d3 = shadeColor(base, -0.72);
+    span.style.textShadow = '0 1px 0 ' + d1 + ', 0 2px 0 ' + d2 + ', 0 3px 1px ' + d3 + ', 0 6px 14px rgba(0,0,0,.65)';
+    span.style.filter = 'drop-shadow(0 8px 16px rgba(0,0,0,.55))';
 
     rotor.appendChild(span);
     wrap.appendChild(rotor);
