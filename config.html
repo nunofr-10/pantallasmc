@@ -127,6 +127,22 @@
       <p class="hint">El texto es 3D de verdad, con grosor: al girar se ve el lateral sólido, no un dibujo plano. Con el metálico activado el lateral se sombrea como un metal pulido; si lo desactivas, la cara frontal se queda en el color liso que elijas (el lateral sigue dando el relieve).</p>
       <label for="textSpeed">Velocidad del giro (segundos por vuelta completa)</label>
       <input type="number" id="textSpeed" min="0.5" step="0.5" value="8" />
+
+      <div class="check" style="margin-top:16px;">
+        <input type="checkbox" id="wallEnabled" />
+        <label for="wallEnabled">Repartir el texto en varias pantallas seguidas (pared de pantallas)</label>
+      </div>
+      <div id="wallPanel" style="display:none;margin-top:10px;">
+        <label for="wallCount">Número de pantallas en la fila</label>
+        <input type="number" id="wallCount" min="2" step="1" value="4" />
+        <p class="hint">
+          Con esto activado, el texto deja de girar y se convierte en un único cartel ancho repartido entre todas
+          las pantallas de la fila (una porción continua en cada una, sin importar cuántas letras tenga cada trozo).<br><br>
+          Para que cada pantalla sepa qué trozo le toca, añade <code>?pos=0</code> a la URL de la primera pantalla
+          (la de más a la izquierda), <code>?pos=1</code> a la segunda, <code>?pos=2</code> a la tercera, etc. — todas
+          siguen apuntando al mismo <code>index.html</code>, solo cambia ese número al final.
+        </p>
+      </div>
     </div>
   </fieldset>
 
@@ -180,8 +196,10 @@
     const mode = $('mode').value;
     $('panelUrl').classList.toggle('show', mode === 'url');
     $('panelText').classList.toggle('show', mode === 'text');
+    $('wallPanel').style.display = $('wallEnabled').checked ? 'block' : 'none';
   }
   $('mode').addEventListener('change', updatePanels);
+  $('wallEnabled').addEventListener('change', updatePanels);
   updatePanels();
 
   function fill(s){
@@ -200,6 +218,9 @@
     if(!$('textFont').value) $('textFont').selectedIndex = 0; // por si el valor guardado ya no existe en la lista
     $('textMetal').checked = t.metal !== false; // por defecto activado (compatible con configs guardadas antes de este ajuste)
     $('textSpeed').value = t.rotateSec || 8;
+    const w = s.wall || {};
+    $('wallEnabled').checked = !!w.enabled;
+    $('wallCount').value = w.count || 4;
     updatePanels();
   }
 
@@ -237,6 +258,10 @@
         font: $('textFont').value,
         metal: $('textMetal').checked,
         rotateSec: Math.max(0.5, parseFloat($('textSpeed').value) || 8)
+      },
+      wall: {
+        enabled: $('wallEnabled').checked,
+        count: Math.max(2, parseInt($('wallCount').value, 10) || 4)
       }
     };
 

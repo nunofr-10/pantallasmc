@@ -24,10 +24,11 @@
     transform-style:preserve-3d;animation-name:spin360;animation-timing-function:linear;
     animation-iteration-count:infinite;padding:0 6vw;
   }
+  .wall-canvas{display:flex;align-items:center;justify-content:center;transform-style:preserve-3d;}
   .text-layers{display:grid;transform-style:preserve-3d;}
   .text-layers span{
-    grid-area:1 / 1;display:block;font-size:8vw;line-height:1.2;text-align:center;white-space:pre-wrap;
-    word-break:break-word;backface-visibility:visible;background-repeat:no-repeat;
+    grid-area:1 / 1;display:block;line-height:1.15;text-align:center;white-space:pre;
+    backface-visibility:visible;background-repeat:no-repeat;
   }
   @keyframes spin360{from{transform:rotateY(0deg);}to{transform:rotateY(360deg);}}
   @keyframes shimmer{0%{background-position:0% 0%;}100%{background-position:0% 260%;}}
@@ -82,6 +83,9 @@
   }
 
   const STATE_URL = DB_URL.replace(/\/$/, '') + '/estado.json';
+
+  // posición de esta pantalla dentro de una fila de varias (?pos=0 es la de más a la izquierda)
+  const SCREEN_POS = Math.max(0, parseInt(new URLSearchParams(location.search).get('pos'), 10) || 0);
 
   const stage  = document.getElementById('stage');
   const idle   = document.getElementById('idle');
@@ -231,35 +235,54 @@
 
   const DEPTH_LAYERS = 10; // nº de capas que forman el grosor del texto en 3D
 
-  function mountText(t){
+  // calcula, midiendo de verdad en el DOM, el mayor tamaño de fuente (px) que
+  // cabe en un contenedor de containerW x containerH sin desbordar ni recortarse
+  function fitFontSizePx(lines, font, weight, containerW, containerH){
+    const REF = 200;
+    const probe = document.createElement('div');
+    probe.style.cssText = 'position:fixed;left:-9999px;top:0;visibility:hidden;white-space:pre;' +
+      'line-height:1.15;font-size:' + REF + 'px;font-family:' + font + ';font-weight:' + weight + ';letter-spacing:0.02em;';
+    document.body.appendChild(probe);
+    let maxLineW = 1;
+    lines.forEach(function(line){
+      probe.textContent = line || ' ';
+      maxLineW = Math.max(maxLineW, probe.scrollWidth);
+    });
+    const lineHeightAtRef = REF * 1.15;
+    const totalHeightAtRef = lineHeightAtRef * lines.length;
+    document.body.removeChild(probe);
+
+    const scale = Math.min((containerW * 0.92) / maxLineW, (containerH * 0.82) / totalHeightAtRef);
+    return Math.max(8, REF * scale);
+  }
+
+  function mountText(t, wall){
     clearStage();
     stage.style.background = t.bg || '#000000';
     const durSec = Math.max(0.5, Number(t.rotateSec) || 8);
     const delay = -((Date.now() % (durSec*1000)) / 1000);
 
-    const wrap = document.createElement('div');
-    wrap.className = 'text-stage';
-    wrap.style.filter = 'drop-shadow(0 10px 18px rgba(0,0,0,.55))'; // sombra de conjunto, fuera del contexto 3D
-
-    const rotor = document.createElement('div');
-    rotor.className = 'text-rotor';
-    rotor.style.animationDuration = durSec + 's';
-    rotor.style.animationDelay = delay + 's';
-
-    const layers = document.createElement('div');
-    layers.className = 'text-layers';
-
     const content = t.content || '';
+    const lines = content.split('\n');
     const base = t.color || '#e5e9ee';
     const font = t.font || "'Orbitron',sans-serif";
     const metal = t.metal !== false; // por defecto activado
     const weight = FONT_WEIGHTS[font] || 900;
+
+    const wallOn = !!(wall && wall.enabled && Number(wall.count) > 1);
+    const wallCount = wallOn ? Math.max(1, Math.round(Number(wall.count))) : 1;
+    const oneW = window.innerWidth;
+    const oneH = window.innerHeight;
+    const containerW = wallOn ? oneW * wallCount : oneW;
+
+    const fontPx = fitFontSizePx(lines, font, weight, containerW, oneH);
 
     function styleCommon(el){
       el.textContent = content;
       el.style.fontFamily = font;
       el.style.fontWeight = weight;
       el.style.letterSpacing = '0.02em';
+      el.style.fontSize = fontPx + 'px';
     }
 
     // cara frontal: la que se lee de frente
@@ -279,17 +302,14 @@
       front.style.color = base;
     }
 
+    const layers = document.createElement('div');
+    layers.className = 'text-layers';
     layers.appendChild(front);
-    rotor.appendChild(layers);
-    wrap.appendChild(rotor);
-    stage.appendChild(wrap);
 
     // grosor real: capas apiladas hacia atrás en el eje Z, cada vez más oscuras
-    // (así el giro 3D muestra un lateral sólido, no solo una sombra pintada)
-    const fontPx = parseFloat(getComputedStyle(front).fontSize) || (window.innerWidth * 0.08);
+    // (así se ve un lateral sólido, no solo una sombra pintada)
     const totalDepth = fontPx * 0.16;
     const step = totalDepth / DEPTH_LAYERS;
-
     for(let i = 1; i <= DEPTH_LAYERS; i++){
       const layer = document.createElement('span');
       styleCommon(layer);
@@ -297,6 +317,42 @@
       layer.style.color = shadeColor(base, -0.075 * i);
       layers.insertBefore(layer, front);
     }
+
+    const wrap = document.createElement('div');
+    wrap.className = 'text-stage';
+    wrap.style.filter = 'drop-shadow(0 10px 18px rgba(0,0,0,.55))'; // sombra de conjunto, fuera del contexto 3D
+    wrap.style.overflow = 'hidden';
+
+    if(wallOn){
+      // "pared de pantallas": un único cartel ancho como la suma de todas las
+      // pantallas, del que cada pantalla solo enseña el trozo que le toca.
+      // Se mantiene un ligero giro fijo (sin animar) para que se note el
+      // grosor 3D sin que el efecto de rotación se rompa entre pantallas.
+      // Nota: aquí no se aplica el giro/inclinación 3D — con un cartel tan ancho
+      // (varias pantallas seguidas) la perspectiva deforma muchísimo los extremos,
+      // así que en este modo el texto se ve plano (con el metalizado y el grosor
+      // de las letras, pero sin el volumen del giro) para que quede recto de verdad
+      // de punta a punta.
+      wrap.style.perspective = 'none';
+      wrap.style.justifyContent = 'flex-start'; // el lienzo se coloca desde el borde izquierdo, no centrado
+      const canvas = document.createElement('div');
+      canvas.className = 'wall-canvas';
+      canvas.style.width = containerW + 'px';
+      canvas.style.height = oneH + 'px';
+      canvas.style.flexShrink = '0'; // si no, flexbox lo encoge al ancho de esta única pantalla
+      canvas.style.transform = 'translateX(-' + (SCREEN_POS * oneW) + 'px)';
+      canvas.appendChild(layers);
+      wrap.appendChild(canvas);
+    } else {
+      const rotor = document.createElement('div');
+      rotor.className = 'text-rotor';
+      rotor.style.animationDuration = durSec + 's';
+      rotor.style.animationDelay = delay + 's';
+      rotor.appendChild(layers);
+      wrap.appendChild(rotor);
+    }
+
+    stage.appendChild(wrap);
   }
 
   function applyFlash(enabled, fSec, fMs){
@@ -312,7 +368,10 @@
     loop();
   }
 
+  let lastState = null;
+
   function applyState(s){
+    lastState = s;
     const mode = s.mode || 'url';
     const hasUrl = mode === 'url' && !!(s.url && s.url.trim());
     const isActive = hasUrl || mode === 'black' || mode === 'text' || !!s.flash;
@@ -322,8 +381,8 @@
     if(mode === 'black'){
       if(current !== 'black'){ mountBlack(); current = 'black'; }
     } else if(mode === 'text' && s.text){
-      const key = 'text|' + JSON.stringify(s.text);
-      if(current !== key){ mountText(s.text); current = key; }
+      const key = 'text|' + JSON.stringify(s.text) + '|' + JSON.stringify(s.wall || null);
+      if(current !== key){ mountText(s.text, s.wall); current = key; }
     } else if(hasUrl){
       const key = s.url + '|' + s.type + '|' + s.t0;
       if(current !== key){ mountContent(s.url.trim(), s.type, s.t0); current = key; }
@@ -334,6 +393,18 @@
 
     applyFlash(!!s.flash, Number(s.fSec)||0, Number(s.fMs)||0);
   }
+
+  // si cambia la resolución de la pantalla (o al arrancar el visor del mod),
+  // recalculamos el tamaño del texto para que siga aprovechando todo el hueco
+  let resizeTimer = null;
+  window.addEventListener('resize', function(){
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function(){
+      if(lastState && lastState.mode === 'text' && lastState.text){
+        mountText(lastState.text, lastState.wall);
+      }
+    }, 200);
+  });
 
   let lastRaw = null;
   async function poll(){
