@@ -6,95 +6,76 @@
 <title>Señal</title>
 <style>
   :root{
-    --bg:#04070d;
-    --line:#132033;
-    --signal:#3ddc84;
-    --amber:#e8a33d;
-    --text:#c9d6e3;
-    --mono:'IBM Plex Mono','SFMono-Regular',Consolas,monospace;
+    --bg:#04070d; --line:#132033; --signal:#3ddc84; --amber:#e8a33d;
+    --text:#c9d6e3; --dim:#5c7188; --mono:'IBM Plex Mono','SFMono-Regular',Consolas,monospace;
   }
   *{box-sizing:border-box;}
-  html,body{
-    margin:0;padding:0;width:100%;height:100%;
-    background:#000;overflow:hidden;
-    font-family:var(--mono);
-  }
-  #stage{
-    position:fixed;inset:0;background:#000;
-  }
+  html,body{margin:0;padding:0;width:100%;height:100%;background:#000;overflow:hidden;font-family:var(--mono);}
+  #stage{position:fixed;inset:0;background:#000;}
   #stage iframe,#stage video,#stage img{
-    position:absolute;inset:0;width:100%;height:100%;
-    border:0;object-fit:cover;background:#000;
+    position:absolute;inset:0;width:100%;height:100%;border:0;object-fit:cover;background:#000;
   }
-  #flash{
-    position:fixed;inset:0;pointer-events:none;
-    z-index:50;background:transparent;
-  }
+  #flash{position:fixed;inset:0;pointer-events:none;z-index:50;background:transparent;display:none;}
   #idle{
-    position:fixed;inset:0;display:flex;flex-direction:column;
-    align-items:center;justify-content:center;gap:18px;
-    background:var(--bg);color:var(--text);
-    text-align:center;padding:40px;
+    position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:16px;background:var(--bg);color:var(--text);text-align:center;padding:40px;
   }
   #idle .dot{
     width:10px;height:10px;border-radius:50%;background:var(--signal);
-    box-shadow:0 0 12px var(--signal);
-    animation:pulse 1.6s ease-in-out infinite;
+    box-shadow:0 0 12px var(--signal);animation:pulse 1.6s ease-in-out infinite;
   }
-  @keyframes pulse{
-    0%,100%{opacity:.35;transform:scale(1);}
-    50%{opacity:1;transform:scale(1.4);}
+  @keyframes pulse{0%,100%{opacity:.35;transform:scale(1);}50%{opacity:1;transform:scale(1.4);}}
+  #idle h1{font-size:15px;font-weight:500;margin:0;letter-spacing:.02em;}
+  #idle p{max-width:420px;font-size:12.5px;line-height:1.6;color:var(--dim);margin:0;}
+  #idle code{color:var(--amber);font-size:12px;}
+  #status{
+    position:fixed;left:14px;bottom:12px;z-index:60;font-size:11px;color:#31465e;
+    letter-spacing:.03em;pointer-events:none;
   }
-  #idle h1{
-    font-size:15px;letter-spacing:.04em;font-weight:500;
-    color:var(--text);margin:0;
+  #status.off{color:#7a2e2e;}
+  #setup{
+    position:fixed;inset:0;background:var(--bg);color:var(--text);display:flex;
+    align-items:center;justify-content:center;padding:40px;text-align:center;
   }
-  #idle code{
-    color:var(--amber);font-size:13px;border:1px solid var(--line);
-    padding:6px 10px;border-radius:3px;
-  }
-  #idle p{
-    max-width:420px;font-size:12.5px;line-height:1.6;color:#5c7188;margin:0;
-  }
-  #hud{
-    position:fixed;left:14px;bottom:12px;z-index:60;
-    font-size:11px;color:#31465e;letter-spacing:.03em;
-    display:flex;gap:10px;align-items:center;
-    pointer-events:none;
-  }
-  #hud b{color:#4a6480;}
+  #setup p{max-width:460px;font-size:13px;line-height:1.7;color:var(--dim);}
+  #setup code{color:var(--amber);}
 </style>
 </head>
 <body>
+
+<!-- ============================================================
+     Pega aquí el mismo ID de buzón que generaste en config.html.
+     Debe ser idéntico en index.html y en config.html.
+     ============================================================ -->
+<script>const BUCKET_ID = "";</script>
+
   <div id="stage"></div>
   <div id="flash"></div>
   <div id="idle">
     <div class="dot"></div>
     <h1>Sin señal de entrada</h1>
-    <code id="cfgLink">/config.html</code>
-    <p>Esta pantalla espera una URL generada desde la configuración. Ábrela ahí, copia el enlace resultante y cárgalo aquí.</p>
+    <p>Configúralo desde <code>config.html</code>. En cuanto guardes algo ahí, esta pantalla lo mostrará sola.</p>
   </div>
-  <div id="hud"></div>
+  <div id="status">conectando…</div>
 
 <script>
 (function(){
-  const params = new URLSearchParams(location.search);
-  const url    = params.get('c') || '';
-  const type   = params.get('t') || '';
-  const t0     = parseInt(params.get('t0') || '0', 10) || Date.now();
-  const flashOn= params.get('f') === '1';
-  const fSec   = Math.max(0, parseFloat(params.get('fs') || '0') || 0);
-  const fMs    = Math.max(0, parseInt(params.get('fm') || '0', 10) || 0);
-  const period = Math.max(20, fSec*1000 + fMs);
+  if(!BUCKET_ID){
+    document.body.innerHTML =
+      '<div id="setup"><p>Falta configurar el ID del buzón (<code>BUCKET_ID</code>) en este archivo.'+
+      ' Ábrelo primero desde <code>config.html</code>, que lo genera y te dice qué pegar aquí.</p></div>';
+    return;
+  }
 
-  const stage = document.getElementById('stage');
-  const idle  = document.getElementById('idle');
-  const hud   = document.getElementById('hud');
-  const flash = document.getElementById('flash');
+  const KV_URL = 'https://kvdb.io/' + BUCKET_ID + '/estado';
 
-  // resolve config link relative to this page's folder
-  document.getElementById('cfgLink').textContent =
-    location.href.replace(/[^/]*$/, 'config.html');
+  const stage  = document.getElementById('stage');
+  const idle   = document.getElementById('idle');
+  const flash  = document.getElementById('flash');
+  const status = document.getElementById('status');
+
+  let current = null;
+  let flashLoopId = null;
 
   function detectType(u){
     if(/youtu\.?be/i.test(u)) return 'youtube';
@@ -102,75 +83,64 @@
     if(/\.(jpg|jpeg|png|gif|webp|svg)(\?.*)?$/i.test(u)) return 'image';
     return 'iframe';
   }
-
   function youtubeId(u){
     const m = u.match(/(?:youtu\.be\/|v=|embed\/)([A-Za-z0-9_-]{11})/);
     return m ? m[1] : null;
   }
+  function clearStage(){ stage.innerHTML = ''; }
 
-  function startFlash(){
-    if(!flashOn) return;
-    function tick(){
-      const phase = Math.floor(Date.now() / period) % 2;
-      flash.style.background = phase === 0 ? '#000' : '#fff';
-      flash.style.mixBlendMode = phase === 0 ? 'normal' : 'difference';
-      requestAnimationFrame(tick);
-    }
-    // simpler: hard black/white swap, no blend needed
-    function loop(){
-      const phase = Math.floor(Date.now() / period) % 2;
-      flash.style.background = phase === 0 ? '#000000' : '#ffffff';
-      requestAnimationFrame(loop);
-    }
-    loop();
+  function mountContent(url, type, t0){
+    clearStage();
+    const kind = type || detectType(url);
+    if(kind === 'youtube') mountYoutube(url, t0);
+    else if(kind === 'video') mountVideo(url, t0);
+    else if(kind === 'image') mountImage(url);
+    else mountIframe(url);
   }
 
-  function showHud(kind){
-    hud.innerHTML = '<b>tipo</b> ' + kind + ' &nbsp; <b>ref</b> ' + new Date(t0).toLocaleTimeString();
-  }
-
-  function mountYoutube(u){
+  function mountYoutube(u, t0){
     const id = youtubeId(u);
     if(!id){ mountIframe(u); return; }
-    showHud('youtube');
-    const tag = document.createElement('script');
-    tag.src = 'https://www.youtube.com/iframe_api';
-    document.head.appendChild(tag);
+    const holder = document.createElement('div');
+    holder.id = 'yt-target';
+    holder.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;';
+    stage.appendChild(holder);
 
-    let player, resynced = false;
-    window.onYouTubeIframeAPIReady = function(){
-      player = new YT.Player('yt-target', {
+    function boot(){
+      new YT.Player('yt-target', {
         videoId: id,
         playerVars:{autoplay:1, controls:0, mute:1, playsinline:1, rel:0, modestbranding:1},
         events:{
           onReady: function(e){
             e.target.mute();
             e.target.playVideo();
-            syncNow(e.target);
-            setInterval(function(){ syncNow(e.target); }, 5000);
+            syncNow(e.target, t0);
+            setInterval(function(){ syncNow(e.target, t0); }, 5000);
           }
         }
       });
-    };
-    function syncNow(p){
-      try{
-        const dur = p.getDuration();
-        if(!dur) return;
-        const elapsed = ((Date.now() - t0) / 1000) % dur;
-        const drift = Math.abs(p.getCurrentTime() - elapsed);
-        if(drift > 1) p.seekTo(elapsed, true);
-      }catch(e){}
     }
-    const holder = document.createElement('div');
-    holder.id = 'yt-target';
-    holder.style.cssText='position:absolute;inset:0;width:100%;height:100%;';
-    stage.appendChild(holder);
+    if(window.YT && window.YT.Player) boot();
+    else{
+      const tag = document.createElement('script');
+      tag.src = 'https://www.youtube.com/iframe_api';
+      document.head.appendChild(tag);
+      window.onYouTubeIframeAPIReady = boot;
+    }
   }
 
-  function mountVideo(u){
-    showHud('video');
+  function syncNow(p, t0){
+    try{
+      const dur = p.getDuration();
+      if(!dur) return;
+      const elapsed = ((Date.now() - t0) / 1000) % dur;
+      if(Math.abs(p.getCurrentTime() - elapsed) > 1) p.seekTo(elapsed, true);
+    }catch(e){}
+  }
+
+  function mountVideo(u, t0){
     const v = document.createElement('video');
-    v.src = u; v.muted = true; v.autoplay = true; v.playsInline = true; v.loop = false;
+    v.src = u; v.muted = true; v.autoplay = true; v.playsInline = true;
     stage.appendChild(v);
     v.addEventListener('loadedmetadata', function(){
       const dur = v.duration || 0;
@@ -186,30 +156,68 @@
   }
 
   function mountImage(u){
-    showHud('imagen');
     const img = document.createElement('img');
     img.src = u;
     stage.appendChild(img);
   }
 
   function mountIframe(u){
-    showHud('web');
     const f = document.createElement('iframe');
     f.src = u;
-    f.setAttribute('allow','autoplay; fullscreen');
+    f.setAttribute('allow', 'autoplay; fullscreen');
     stage.appendChild(f);
   }
 
-  if(url){
-    idle.style.display = 'none';
-    const kind = type || detectType(url);
-    if(kind === 'youtube') mountYoutube(url);
-    else if(kind === 'video') mountVideo(url);
-    else if(kind === 'image') mountImage(url);
-    else mountIframe(url);
+  function applyFlash(enabled, fSec, fMs){
+    if(flashLoopId){ cancelAnimationFrame(flashLoopId); flashLoopId = null; }
+    if(!enabled){ flash.style.display = 'none'; return; }
+    flash.style.display = 'block';
+    const period = Math.max(20, fSec*1000 + fMs);
+    function loop(){
+      const phase = Math.floor(Date.now() / period) % 2;
+      flash.style.background = phase === 0 ? '#000000' : '#ffffff';
+      flashLoopId = requestAnimationFrame(loop);
+    }
+    loop();
   }
 
-  startFlash();
+  function applyState(s){
+    const hasContent = !!(s.url && s.url.trim());
+    idle.style.display = hasContent ? 'none' : 'flex';
+
+    const contentKey = s.url + '|' + s.type + '|' + s.t0;
+    if(hasContent && contentKey !== current){
+      mountContent(s.url.trim(), s.type, s.t0);
+      current = contentKey;
+    } else if(!hasContent && current !== null){
+      clearStage();
+      current = null;
+    }
+    applyFlash(!!s.flash, Number(s.fSec)||0, Number(s.fMs)||0);
+  }
+
+  let lastRaw = null;
+  async function poll(){
+    try{
+      const res = await fetch(KV_URL, {cache:'no-store'});
+      if(res.status === 200){
+        const raw = await res.text();
+        if(raw !== lastRaw){
+          lastRaw = raw;
+          applyState(JSON.parse(raw));
+        }
+        status.textContent = 'en línea';
+        status.classList.remove('off');
+      } else if(res.status === 404){
+        status.textContent = 'esperando primera configuración…';
+      }
+    }catch(e){
+      status.textContent = 'sin conexión, reintentando…';
+      status.classList.add('off');
+    }
+    setTimeout(poll, 1500);
+  }
+  poll();
 })();
 </script>
 </body>
