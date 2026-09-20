@@ -71,9 +71,10 @@
     cursor:move;user-select:none;overflow:hidden;
   }
   .map-box.off{border-color:#7a2e2e;background:rgba(224,97,107,.10);color:var(--dim);}
+  .map-box.custom{border-style:dashed;border-color:var(--amber);}
   .map-box.mine{box-shadow:0 0 0 2px var(--amber) inset;}
   .screen-head,.screen-row{
-    display:grid;grid-template-columns:1fr 44px 44px 44px 44px 26px 24px;gap:5px;align-items:center;
+    display:grid;grid-template-columns:1fr 40px 40px 40px 40px 24px 26px 24px;gap:5px;align-items:center;
   }
   .screen-head{font-size:9.5px;color:var(--dim);margin-top:12px;text-align:center;}
   .screen-head span:first-child{text-align:left;}
@@ -85,14 +86,39 @@
     width:100%;height:26px;padding:0;background:transparent;border:1px solid var(--line);color:var(--dim);
     font-size:13px;line-height:1;margin:0;
   }
-  .screen-row button:hover{color:#e0616b;border-color:#e0616b;filter:none;}
+  .screen-row .sDelete:hover{color:#e0616b;border-color:#e0616b;filter:none;}
+  .screen-row .sConfig{color:var(--dim);}
+  .screen-row .sConfig:hover{color:var(--amber);border-color:var(--amber);filter:none;}
+  .screen-row .sConfig.active{color:var(--amber);border-color:var(--amber);background:rgba(232,163,61,.12);}
   #addScreen{background:transparent;border:1px dashed var(--line);color:var(--text);margin-top:12px;}
+  #openAllCfg{background:transparent;border:1px solid var(--signal);color:var(--signal);margin-top:14px;}
+
+  .modal-overlay{
+    display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:100;
+    align-items:flex-start;justify-content:center;padding:32px 16px;overflow:auto;
+  }
+  .modal-overlay.show{display:flex;}
+  .modal-box{
+    background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:22px;
+    max-width:480px;width:100%;position:relative;
+  }
+  .modal-box h2{font-size:14px;font-weight:600;color:var(--text);margin:0 0 2px;padding-right:24px;}
+  .modal-sub{font-size:11.5px;color:var(--dim);margin:0 0 14px;line-height:1.5;}
+  .modal-close{
+    position:absolute;top:14px;right:14px;width:26px;height:26px;padding:0;margin:0;
+    background:transparent;border:1px solid var(--line);color:var(--dim);border-radius:3px;font-size:14px;
+  }
+  .modal-close:hover{color:#e0616b;border-color:#e0616b;filter:none;}
+  .modal-actions{display:flex;flex-direction:column;gap:8px;margin-top:18px;}
+  .modal-actions button{margin-top:0;}
+  #cfgClear,#cfgCancel{background:transparent;border:1px solid var(--line);color:var(--dim);}
+  #cfgRestart{background:var(--amber);color:#241703;}
 </style>
 </head>
 <body>
 <main>
   <h1>Configuración de señal</h1>
-  <p class="sub">Cambia lo que quieras y pulsa guardar: todas las pantallas abiertas en <b>index.html</b> se actualizan solas, sin que nadie recargue nada.</p>
+  <p class="sub">Cambia lo que quieras: todas las pantallas abiertas en <b>index.html</b> se actualizan solas, sin que nadie recargue nada.</p>
 
   <div id="setup" style="display:none">
     <p><b>Falta un paso previo:</b> esta página necesita la Database URL de un proyecto Firebase gratuito.</p>
@@ -109,24 +135,57 @@
     <legend>mapa de pantallas</legend>
     <p class="hint" style="margin-top:0;">
       Coloca aquí cada pantalla tal y como están unas respecto a otras en la partida (arrástralas, o ajusta los números),
-      con su tamaño en bloques de Minecraft. Sirve para poder apagar pantallas sueltas y para que el modo "repartir texto"
-      sepa qué trozo le toca a cada una — da igual que estén en fila, en columna o en una cuadrícula.
+      con su tamaño en bloques de Minecraft. Pulsa <b>⚙</b> en una fila para decirle a esa pantalla en concreto qué
+      mostrar; si no la personalizas, sigue la configuración general.
     </p>
     <div id="mapCanvas" class="map-canvas"></div>
     <div class="screen-head">
-      <span>id</span><span>X</span><span>Y</span><span>ancho</span><span>alto</span><span>on</span><span></span>
+      <span>id</span><span>X</span><span>Y</span><span>ancho</span><span>alto</span><span>on</span><span></span><span></span>
     </div>
     <div id="screenList"></div>
     <button id="addScreen" type="button">+ Añadir pantalla</button>
+    <button id="openAllCfg" type="button">⚙ Configurar todas las pantallas</button>
     <p class="hint">
       X/Y = posición de la esquina superior izquierda en bloques; ancho/alto = tamaño en bloques (las tuyas son 15x4).
       En WebDisplays, pon en la URL de cada pantalla <code>?id=</code> seguido del identificador que le hayas puesto aquí
-      (por ejemplo <code>index.html?id=pantalla1</code>), para que cada una sepa cuál es su sitio.
+      (por ejemplo <code>index.html?id=pantalla1</code>), para que cada una sepa cuál es su sitio. Una pantalla con
+      un borde discontinuo naranja en el mapa tiene su propia configuración (distinta de la general).
     </p>
   </fieldset>
 
   <fieldset>
-    <legend>modo de pantalla</legend>
+    <legend>efecto blanco / negro (parpadeo)</legend>
+    <div class="check">
+      <input type="checkbox" id="flashEnabled" />
+      <label for="flashEnabled">Activar parpadeo (se superpone a cualquier modo, en todas las pantallas)</label>
+    </div>
+    <div class="row">
+      <div>
+        <label for="fSec">Segundos</label>
+        <input type="number" id="fSec" min="0" step="1" value="0" />
+      </div>
+      <div>
+        <label for="fMs">Milisegundos</label>
+        <input type="number" id="fMs" min="0" step="10" value="500" />
+      </div>
+    </div>
+    <p class="hint">Ese tiempo es lo que dura cada color antes de cambiar. 0s / 500ms = medio segundo en negro, medio en blanco.</p>
+  </fieldset>
+
+  <button id="save" disabled>Guardar cambios</button>
+  <p id="msg">Preparando…</p>
+</main>
+
+<!-- ============================================================
+     modal de configuración: se usa tanto para "todas las pantallas"
+     como para una pantalla individual, según qué botón la abra
+     ============================================================ -->
+<div id="cfgModal" class="modal-overlay">
+  <div class="modal-box">
+    <button type="button" id="cfgClose" class="modal-close">×</button>
+    <h2 id="cfgModalTitle">Configurar</h2>
+    <p id="cfgModalSub" class="modal-sub"></p>
+
     <label for="mode">Qué mostrar</label>
     <select id="mode">
       <option value="url">Web / vídeo / imagen (URL)</option>
@@ -145,8 +204,6 @@
         <option value="image">Imagen</option>
         <option value="iframe">Página web genérica</option>
       </select>
-      <button id="restart" type="button" style="background:var(--amber);color:#241703;">Reiniciar vídeo en todas las pantallas</button>
-      <p class="hint">Úsalo si en alguna pantalla ha salido un anuncio antes del vídeo y se ha desincronizado: esto lo vuelve a poner desde el principio a la vez en todas, sin tener que tocar la URL.</p>
     </div>
 
     <div id="panelText" class="subpanel">
@@ -180,40 +237,30 @@
       <label for="textSpeed">Velocidad del giro (segundos por vuelta completa)</label>
       <input type="number" id="textSpeed" min="0.5" step="0.5" value="8" />
 
-      <div class="check" style="margin-top:16px;">
-        <input type="checkbox" id="wallEnabled" />
-        <label for="wallEnabled">Repartir el texto entre las pantallas del mapa (en vez de repetirlo igual en todas)</label>
+      <div id="wallBlock">
+        <div class="check" style="margin-top:16px;">
+          <input type="checkbox" id="wallEnabled" />
+          <label for="wallEnabled">Repartir el texto entre las pantallas del mapa (en vez de repetirlo igual en todas)</label>
+        </div>
+        <p id="wallHint" class="hint" style="display:none;">
+          Usa la posición y el tamaño de cada pantalla del <b>mapa de pantallas</b> para partir el texto en un
+          único cartel continuo (deja de girar y queda plano, recto de punta a punta). Hacen falta al menos 2 pantallas
+          dadas de alta ahí, cada una con su <code>?id=</code> puesto en WebDisplays, y que sigan la configuración
+          general (una pantalla con su propia configuración individual se queda fuera del reparto).
+        </p>
       </div>
-      <p id="wallHint" class="hint" style="display:none;">
-        Usa la posición y el tamaño de cada pantalla del <b>mapa de pantallas</b> de arriba para partir el texto en un
-        único cartel continuo (deja de girar y queda plano, recto de punta a punta). Hacen falta al menos 2 pantallas
-        dadas de alta ahí, cada una con su <code>?id=</code> puesto en WebDisplays.
-      </p>
     </div>
-  </fieldset>
 
-  <fieldset>
-    <legend>efecto blanco / negro (parpadeo)</legend>
-    <div class="check">
-      <input type="checkbox" id="flashEnabled" />
-      <label for="flashEnabled">Activar parpadeo (se superpone a cualquier modo)</label>
-    </div>
-    <div class="row">
-      <div>
-        <label for="fSec">Segundos</label>
-        <input type="number" id="fSec" min="0" step="1" value="0" />
-      </div>
-      <div>
-        <label for="fMs">Milisegundos</label>
-        <input type="number" id="fMs" min="0" step="10" value="500" />
-      </div>
-    </div>
-    <p class="hint">Ese tiempo es lo que dura cada color antes de cambiar. 0s / 500ms = medio segundo en negro, medio en blanco.</p>
-  </fieldset>
+    <p id="cfgRestartHint" class="hint" style="display:none;">Úsalo si en alguna pantalla ha salido un anuncio antes del vídeo y se ha desincronizado: esto lo vuelve a poner desde el principio, sin tener que tocar la URL.</p>
 
-  <button id="save" disabled>Guardar y emitir a todas las pantallas</button>
-  <p id="msg">Preparando…</p>
-</main>
+    <div class="modal-actions">
+      <button type="button" id="cfgRestart">Reiniciar vídeo</button>
+      <button type="button" id="cfgSave">Guardar</button>
+      <button type="button" id="cfgClear" style="display:none;">Usar configuración general (quitar personalización)</button>
+      <button type="button" id="cfgCancel">Cancelar</button>
+    </div>
+  </div>
+</div>
 
 <!-- ============================================================
      Pega aquí la Database URL de tu proyecto Firebase, la misma
@@ -227,7 +274,6 @@
 (function(){
   const $ = (id) => document.getElementById(id);
   const msg = $('msg');
-  let lastUrl = '';
 
   if(!DB_URL){
     $('setup').style.display = 'block';
@@ -238,20 +284,21 @@
 
   const STATE_URL = DB_URL.replace(/\/$/, '') + '/estado.json';
 
-  function updatePanels(){
-    const mode = $('mode').value;
-    $('panelUrl').classList.toggle('show', mode === 'url');
-    $('panelText').classList.toggle('show', mode === 'text');
-    $('wallHint').style.display = $('wallEnabled').checked ? 'block' : 'none';
-  }
-  $('mode').addEventListener('change', updatePanels);
-  $('wallEnabled').addEventListener('change', updatePanels);
-  updatePanels();
+  // ---------------------------------------------------------------
+  // configuración general ("todas las pantallas"), independiente de
+  // lo que se esté editando en el modal en cada momento
+  // ---------------------------------------------------------------
+  let globalCfg = {
+    mode: 'url', url: '', type: '', t0: null,
+    text: { content:'', color:'#ffffff', bg:'#000000', font:"'Orbitron',sans-serif", metal:true, rotateSec:8 },
+    wall: { enabled:false }
+  };
 
   // ---------------------------------------------------------------
   // mapa de pantallas: posición/tamaño en bloques + activo/apagado
+  // + configuración individual opcional (cfg) que sustituye a la general
   // ---------------------------------------------------------------
-  let screens = {};       // { id: {x,y,w,h,enabled} }
+  let screens = {};       // { id: {x,y,w,h,enabled,cfg?} }
   let screenOrder = [];   // para mantener el orden en el listado
   let currentScale = 12, currentBounds = {minX:0,minY:0,maxX:20,maxY:8};
 
@@ -282,6 +329,7 @@
     box.style.width = Math.max(20, s.w * currentScale) + 'px';
     box.style.height = Math.max(16, s.h * currentScale) + 'px';
     box.classList.toggle('off', s.enabled === false);
+    box.classList.toggle('custom', !!s.cfg);
   }
 
   function attachDrag(box, id){
@@ -348,6 +396,7 @@
         '<input type="number" class="sW" value="' + s.w + '" min="1">' +
         '<input type="number" class="sH" value="' + s.h + '" min="1">' +
         '<input type="checkbox" class="sEnabled"' + (s.enabled !== false ? ' checked' : '') + '>' +
+        '<button type="button" class="sConfig' + (s.cfg ? ' active' : '') + '" title="Configurar esta pantalla">⚙</button>' +
         '<button type="button" class="sDelete" title="Eliminar">×</button>';
       list.appendChild(row);
 
@@ -359,6 +408,7 @@
         row.querySelector('.' + cls).addEventListener('change', renderScreens);
       });
       row.querySelector('.sEnabled').addEventListener('change', function(){ s.enabled = this.checked; renderScreens(); });
+      row.querySelector('.sConfig').addEventListener('click', function(){ openCfgModal(id); });
       row.querySelector('.sDelete').addEventListener('click', function(){
         delete screens[id];
         screenOrder = screenOrder.filter(function(x){ return x !== id; });
@@ -386,31 +436,167 @@
     renderScreens();
   });
 
-  function fill(s){
-    lastUrl = s.url || '';
-    $('mode').value = s.mode || 'url';
-    $('url').value = s.url || '';
-    $('type').value = s.type || '';
-    $('flashEnabled').checked = !!s.flash;
-    $('fSec').value = s.fSec ?? 0;
-    $('fMs').value = s.fMs ?? 500;
-    const t = s.text || {};
+  // ---------------------------------------------------------------
+  // modal de configuración (mode/url/text), compartido entre
+  // "todas las pantallas" y cada pantalla individual
+  // ---------------------------------------------------------------
+  let cfgTarget = null; // 'all' | id de pantalla | null
+
+  function updatePanels(){
+    const mode = $('mode').value;
+    $('panelUrl').classList.toggle('show', mode === 'url');
+    $('panelText').classList.toggle('show', mode === 'text');
+    $('wallHint').style.display = $('wallEnabled').checked ? 'block' : 'none';
+    $('cfgRestart').style.display = mode === 'url' ? 'block' : 'none';
+    $('cfgRestartHint').style.display = mode === 'url' ? 'block' : 'none';
+  }
+  $('mode').addEventListener('change', updatePanels);
+  $('wallEnabled').addEventListener('change', updatePanels);
+
+  function fieldsFromCfg(cfg){
+    $('mode').value = cfg.mode || 'url';
+    $('url').value = cfg.url || '';
+    $('type').value = cfg.type || '';
+    const t = cfg.text || {};
     $('textContent').value = t.content || '';
     $('textColor').value = t.color || '#ffffff';
     $('textBg').value = t.bg || '#000000';
     $('textFont').value = t.font || "'Orbitron',sans-serif";
-    if(!$('textFont').value) $('textFont').selectedIndex = 0; // por si el valor guardado ya no existe en la lista
-    $('textMetal').checked = t.metal !== false; // por defecto activado (compatible con configs guardadas antes de este ajuste)
+    if(!$('textFont').value) $('textFont').selectedIndex = 0;
+    $('textMetal').checked = t.metal !== false;
     $('textSpeed').value = t.rotateSec || 8;
-    const w = s.wall || {};
-    $('wallEnabled').checked = !!w.enabled;
+  }
+
+  function cfgFromFields(){
+    return {
+      mode: $('mode').value,
+      url: $('url').value.trim(),
+      type: $('type').value,
+      text: {
+        content: $('textContent').value,
+        color: $('textColor').value,
+        bg: $('textBg').value,
+        font: $('textFont').value,
+        metal: $('textMetal').checked,
+        rotateSec: Math.max(0.5, parseFloat($('textSpeed').value) || 8)
+      }
+    };
+  }
+
+  function openCfgModal(target){
+    cfgTarget = target;
+    const isAll = target === 'all';
+    if(isAll){
+      $('cfgModalTitle').textContent = 'Configurar todas las pantallas';
+      $('cfgModalSub').textContent = 'Esto es lo que muestran, por defecto, las pantallas que no tienen su propia configuración.';
+      fieldsFromCfg(globalCfg);
+      $('wallEnabled').checked = !!(globalCfg.wall && globalCfg.wall.enabled);
+      $('wallBlock').style.display = 'block';
+      $('cfgClear').style.display = 'none';
+    } else {
+      const s = screens[target];
+      $('cfgModalTitle').textContent = 'Configurar ' + target;
+      $('cfgModalSub').textContent = s.cfg
+        ? 'Esta pantalla tiene su propia configuración, distinta de la general.'
+        : 'Ahora mismo sigue la configuración general. Guarda para darle una propia, solo para ella.';
+      fieldsFromCfg(s.cfg || globalCfg);
+      $('wallEnabled').checked = false;
+      $('wallBlock').style.display = 'none';
+      $('cfgClear').style.display = s.cfg ? 'block' : 'none';
+    }
+    updatePanels();
+    $('cfgModal').classList.add('show');
+  }
+
+  function closeCfgModal(){
+    $('cfgModal').classList.remove('show');
+    cfgTarget = null;
+  }
+
+  $('openAllCfg').addEventListener('click', function(){ openCfgModal('all'); });
+  $('cfgCancel').addEventListener('click', closeCfgModal);
+  $('cfgClose').addEventListener('click', closeCfgModal);
+  $('cfgModal').addEventListener('click', function(e){ if(e.target === $('cfgModal')) closeCfgModal(); });
+
+  $('cfgSave').addEventListener('click', async function(){
+    if(!cfgTarget) return;
+    const fields = cfgFromFields();
+    if(cfgTarget === 'all'){
+      const changed = fields.url !== globalCfg.url;
+      globalCfg = Object.assign({}, globalCfg, fields, {
+        wall: { enabled: $('wallEnabled').checked },
+        t0: changed ? Date.now() : (globalCfg.t0 || Date.now())
+      });
+      await sendState(buildBody(), 'Guardando…', 'Emitido a todas las pantallas.');
+    } else {
+      const id = cfgTarget;
+      const prev = screens[id].cfg;
+      const changed = fields.url !== (prev ? prev.url : null);
+      screens[id].cfg = Object.assign({}, fields, { t0: changed ? Date.now() : (prev && prev.t0) || Date.now() });
+      renderScreens();
+      await sendState(buildBody(), 'Guardando…', 'Emitido a ' + id + '.');
+    }
+    closeCfgModal();
+  });
+
+  $('cfgClear').addEventListener('click', async function(){
+    if(!cfgTarget || cfgTarget === 'all') return;
+    const id = cfgTarget;
+    delete screens[id].cfg;
+    renderScreens();
+    await sendState(buildBody(), 'Guardando…', id + ' vuelve a seguir la configuración general.');
+    closeCfgModal();
+  });
+
+  $('cfgRestart').addEventListener('click', async function(){
+    if(!cfgTarget) return;
+    if(cfgTarget === 'all'){
+      globalCfg = Object.assign({}, globalCfg, cfgFromFields(), { t0: Date.now() });
+      await sendState(buildBody(), 'Reiniciando…', 'Vídeo reiniciado en todas las pantallas.');
+    } else {
+      const id = cfgTarget;
+      screens[id].cfg = Object.assign({}, cfgFromFields(), { t0: Date.now() });
+      renderScreens();
+      await sendState(buildBody(), 'Reiniciando…', 'Vídeo reiniciado en ' + id + '.');
+    }
+    closeCfgModal();
+  });
+
+  // ---------------------------------------------------------------
+  // carga y guardado del estado completo en Firebase
+  // ---------------------------------------------------------------
+  function fill(s){
+    globalCfg = {
+      mode: s.mode || 'url',
+      url: s.url || '',
+      type: s.type || '',
+      t0: s.t0 || null,
+      text: {
+        content: (s.text && s.text.content) || '',
+        color: (s.text && s.text.color) || '#ffffff',
+        bg: (s.text && s.text.bg) || '#000000',
+        font: (s.text && s.text.font) || "'Orbitron',sans-serif",
+        metal: !s.text || s.text.metal !== false,
+        rotateSec: (s.text && s.text.rotateSec) || 8
+      },
+      wall: { enabled: !!(s.wall && s.wall.enabled) }
+    };
+
+    $('flashEnabled').checked = !!s.flash;
+    $('fSec').value = s.fSec ?? 0;
+    $('fMs').value = s.fMs ?? 500;
 
     if(s.screens && Object.keys(s.screens).length){
       screens = {};
       screenOrder = [];
       Object.keys(s.screens).forEach(function(id){
         const sc = s.screens[id];
-        screens[id] = { x: Number(sc.x)||0, y: Number(sc.y)||0, w: Math.max(1,Number(sc.w)||15), h: Math.max(1,Number(sc.h)||4), enabled: sc.enabled !== false };
+        screens[id] = {
+          x: Number(sc.x)||0, y: Number(sc.y)||0,
+          w: Math.max(1,Number(sc.w)||15), h: Math.max(1,Number(sc.h)||4),
+          enabled: sc.enabled !== false
+        };
+        if(sc.cfg && sc.cfg.mode) screens[id].cfg = sc.cfg;
         screenOrder.push(id);
       });
     } else if(!s.screens){
@@ -427,7 +613,6 @@
       screenOrder = [];
     }
     renderScreens();
-    updatePanels();
   }
 
   async function init(){
@@ -448,25 +633,17 @@
     $('save').disabled = false;
   }
 
-  function collectBody(){
+  function buildBody(){
     return {
-      mode: $('mode').value,
-      url: $('url').value.trim(),
-      type: $('type').value,
+      mode: globalCfg.mode,
+      url: globalCfg.url,
+      type: globalCfg.type,
+      t0: globalCfg.t0,
+      text: globalCfg.text,
+      wall: globalCfg.wall,
       flash: $('flashEnabled').checked,
       fSec: Math.max(0, parseFloat($('fSec').value) || 0),
       fMs: Math.max(0, parseInt($('fMs').value, 10) || 0),
-      text: {
-        content: $('textContent').value,
-        color: $('textColor').value,
-        bg: $('textBg').value,
-        font: $('textFont').value,
-        metal: $('textMetal').checked,
-        rotateSec: Math.max(0.5, parseFloat($('textSpeed').value) || 8)
-      },
-      wall: {
-        enabled: $('wallEnabled').checked
-      },
       screens: screens
     };
   }
@@ -481,8 +658,6 @@
         body: JSON.stringify(body)
       });
       if(!putRes.ok) throw new Error('HTTP ' + putRes.status);
-
-      lastUrl = body.url;
       msg.textContent = doneMsg;
       msg.classList.add('ok');
     }catch(e){
@@ -491,29 +666,9 @@
     }
   }
 
+  // guarda cambios que no pasan por el modal (por ahora, solo el parpadeo)
   $('save').addEventListener('click', async function(){
-    const body = collectBody();
-    const contentChanged = body.url !== lastUrl;
-
-    if(contentChanged){
-      body.t0 = Date.now();
-    } else {
-      try{
-        const res = await fetch(STATE_URL, {cache:'no-store'});
-        const raw = res.ok ? await res.text() : 'null';
-        body.t0 = (raw !== 'null' && JSON.parse(raw).t0) ? JSON.parse(raw).t0 : Date.now();
-      }catch(e){ body.t0 = Date.now(); }
-    }
-
-    await sendState(body, 'Guardando…', 'Emitido a todas las pantallas.');
-  });
-
-  // pone el contenido actual (vídeo, imagen o web) otra vez desde el principio
-  // en todas las pantallas a la vez — sin tocar nada más de la configuración
-  $('restart').addEventListener('click', async function(){
-    const body = collectBody();
-    body.t0 = Date.now();
-    await sendState(body, 'Reiniciando…', 'Vídeo reiniciado en todas las pantallas.');
+    await sendState(buildBody(), 'Guardando…', 'Guardado.');
   });
 
   init();

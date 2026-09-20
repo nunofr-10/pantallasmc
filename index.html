@@ -451,21 +451,29 @@
       return;
     }
 
-    const mode = s.mode || 'url';
-    const hasUrl = mode === 'url' && !!(s.url && s.url.trim());
+    // si esta pantalla tiene su propia configuración (botón "⚙" individual en
+    // config.html), se usa esa en vez de la configuración general de todas
+    const usingOwn = !!(mine && mine.cfg && mine.cfg.mode);
+    const cfg = usingOwn ? mine.cfg : s;
+
+    const mode = cfg.mode || 'url';
+    const hasUrl = mode === 'url' && !!(cfg.url && cfg.url.trim());
     const isActive = hasUrl || mode === 'black' || mode === 'text' || !!s.flash;
 
     idle.style.display = isActive ? 'none' : 'flex';
 
     if(mode === 'black'){
       if(current !== 'black'){ mountBlack(); current = 'black'; }
-    } else if(mode === 'text' && s.text){
-      const spread = !!(s.wall && s.wall.enabled);
-      const key = 'text|' + JSON.stringify(s.text) + '|' + spread + '|' + JSON.stringify(screens);
-      if(current !== key){ mountText(s.text, spread, screens, mine); current = key; }
+    } else if(mode === 'text' && cfg.text){
+      // repartir el texto entre pantallas solo tiene sentido para las que
+      // siguen la configuración general; una pantalla con configuración
+      // propia se queda fuera del reparto
+      const spread = !usingOwn && !!(s.wall && s.wall.enabled);
+      const key = 'text|' + JSON.stringify(cfg.text) + '|' + spread + '|' + JSON.stringify(screens);
+      if(current !== key){ mountText(cfg.text, spread, screens, mine); current = key; }
     } else if(hasUrl){
-      const key = s.url + '|' + s.type + '|' + s.t0;
-      if(current !== key){ mountContent(s.url.trim(), s.type, s.t0); current = key; }
+      const key = cfg.url + '|' + cfg.type + '|' + cfg.t0;
+      if(current !== key){ mountContent(cfg.url.trim(), cfg.type, cfg.t0); current = key; }
     } else if(current !== null){
       clearStage();
       current = null;
@@ -480,10 +488,14 @@
   window.addEventListener('resize', function(){
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(function(){
-      if(lastState && lastState.mode === 'text' && lastState.text){
-        const screens = lastState.screens || {};
-        const mine = SCREEN_ID ? screens[SCREEN_ID] : null;
-        mountText(lastState.text, !!(lastState.wall && lastState.wall.enabled), screens, mine);
+      if(!lastState) return;
+      const screens = lastState.screens || {};
+      const mine = SCREEN_ID ? screens[SCREEN_ID] : null;
+      const usingOwn = !!(mine && mine.cfg && mine.cfg.mode);
+      const cfg = usingOwn ? mine.cfg : lastState;
+      if(cfg.mode === 'text' && cfg.text){
+        const spread = !usingOwn && !!(lastState.wall && lastState.wall.enabled);
+        mountText(cfg.text, spread, screens, mine);
       }
     }, 200);
   });
