@@ -22,16 +22,15 @@
   .text-stage{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;perspective:1200px;}
   .text-rotor{
     transform-style:preserve-3d;animation-name:spin360;animation-timing-function:linear;
-    animation-iteration-count:infinite;padding:0 6vw;
+    animation-iteration-count:infinite;padding:0 6vw;will-change:transform;
   }
   .wall-canvas{display:flex;align-items:center;justify-content:center;transform-style:preserve-3d;}
   .text-layers{display:grid;transform-style:preserve-3d;}
   .text-layers span{
     grid-area:1 / 1;display:block;line-height:1.15;text-align:center;white-space:pre;
-    backface-visibility:visible;background-repeat:no-repeat;
+    backface-visibility:visible;
   }
   @keyframes spin360{from{transform:rotateY(0deg);}to{transform:rotateY(360deg);}}
-  @keyframes shimmer{0%{background-position:0% 0%;}100%{background-position:0% 260%;}}
   #idle{
     position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
     gap:16px;background:var(--bg);color:var(--text);text-align:center;padding:40px;
@@ -233,12 +232,23 @@
     "'Poppins',sans-serif": 800
   };
 
-  const DEPTH_LAYERS = 10; // nº de capas que forman el grosor del texto en 3D
+  const DEPTH_LAYERS = 5; // nº de capas que forman el grosor del texto en 3D
+  const PX_PER_BLOCK = 100; // unidad lógica fija: igual en todas las pantallas,
+                             // así todas calculan exactamente la misma geometría
 
   // a partir del mapa de pantallas (posición y tamaño en bloques de cada una),
   // calcula el tamaño total del "cartel" conjunto y el trozo que le toca a ESTA
   // pantalla dentro de él. Solo funciona si esta pantalla está dada de alta en
   // el mapa (con su ?id=) junto con al menos otra más.
+  //
+  // Importante: esto se calcula SIEMPRE en unidades lógicas fijas (PX_PER_BLOCK),
+  // nunca con window.innerWidth/innerHeight. Si cada pantalla midiera con su
+  // propio viewport real, pequeñas diferencias entre visores (redondeos,
+  // distinta resolución del bloque del mod, etc.) hacían que el tamaño de
+  // fuente y el recorte no coincidieran exactamente entre pantallas y el texto
+  // se veía descuadrado/roto de una pantalla a otra. Con una unidad fija todas
+  // las pantallas calculan lo mismo, y al final cada una escala ese resultado
+  // a su resolución real con un único transform: scale(...).
   function computeMapGeometry(screens, mine){
     if(!mine || !mine.w || !mine.h) return null;
     const list = Object.keys(screens || {}).map(function(id){
@@ -257,17 +267,21 @@
       maxY = Math.max(maxY, y + Number(sc.h));
     });
 
-    // cuántos píxeles reales representa un bloque en ESTA pantalla (su propio
-    // visor ocupa exactamente sus bloques de ancho/alto)
-    const pxPerBlockX = window.innerWidth / Number(mine.w);
-    const pxPerBlockY = window.innerHeight / Number(mine.h);
     const myX = Number(mine.x) || 0, myY = Number(mine.y) || 0;
+    const myW = Number(mine.w), myH = Number(mine.h);
 
     return {
-      canvasW: (maxX - minX) * pxPerBlockX,
-      canvasH: (maxY - minY) * pxPerBlockY,
-      offsetX: (myX - minX) * pxPerBlockX,
-      offsetY: (myY - minY) * pxPerBlockY
+      // lienzo conjunto y hueco de esta pantalla en unidades lógicas fijas
+      canvasW: (maxX - minX) * PX_PER_BLOCK,
+      canvasH: (maxY - minY) * PX_PER_BLOCK,
+      offsetX: (myX - minX) * PX_PER_BLOCK,
+      offsetY: (myY - minY) * PX_PER_BLOCK,
+      myLogicalW: myW * PX_PER_BLOCK,
+      myLogicalH: myH * PX_PER_BLOCK,
+      // factor para pasar de ese tamaño lógico al tamaño real del visor de
+      // esta pantalla en concreto (cada pantalla tiene el suyo, al final)
+      scaleX: window.innerWidth / (myW * PX_PER_BLOCK),
+      scaleY: window.innerHeight / (myH * PX_PER_BLOCK)
     };
   }
 
@@ -309,6 +323,8 @@
     const wallOn = !!geo;
     const oneW = window.innerWidth;
     const oneH = window.innerHeight;
+    // en modo mapa, todo se calcula en unidades lógicas fijas (iguales en
+    // todas las pantallas); al final se escala una sola vez al tamaño real
     const containerW = wallOn ? geo.canvasW : oneW;
     const containerH = wallOn ? geo.canvasH : oneH;
 
@@ -329,12 +345,10 @@
 
     if(metal){
       front.style.backgroundImage = 'linear-gradient(180deg, ' + metallicGradient(base) + ')';
-      front.style.backgroundSize = '100% 260%';
       front.style.setProperty('-webkit-background-clip', 'text');
       front.style.backgroundClip = 'text';
       front.style.color = 'transparent';
       front.style.setProperty('-webkit-text-fill-color', 'transparent');
-      front.style.animation = 'shimmer 2.6s linear infinite';
     } else {
       front.style.color = base;
     }
@@ -357,7 +371,6 @@
 
     const wrap = document.createElement('div');
     wrap.className = 'text-stage';
-    wrap.style.filter = 'drop-shadow(0 10px 18px rgba(0,0,0,.55))'; // sombra de conjunto, fuera del contexto 3D
     wrap.style.overflow = 'hidden';
 
     if(wallOn){
@@ -369,9 +382,26 @@
       // así que en este modo el texto se ve plano (con el metalizado y el grosor
       // de las letras, pero sin el volumen del giro) para que quede recto de verdad
       // de punta a punta y de arriba a abajo.
+      //
+      // Todo el cartel (tamaño, recorte y posición) se calcula en unidades
+      // lógicas fijas iguales en todas las pantallas (ver PX_PER_BLOCK) y solo
+      // al final se escala UNA vez al tamaño real de esta pantalla en concreto.
+      // Así, aunque cada visor del mod tenga una resolución real ligeramente
+      // distinta, el recorte de cada trozo del texto sigue coincidiendo exacto
+      // con el de las demás pantallas.
       wrap.style.perspective = 'none';
       wrap.style.justifyContent = 'flex-start';
       wrap.style.alignItems = 'flex-start'; // el lienzo se coloca desde la esquina, no centrado
+
+      // "ventana" del tamaño lógico de esta pantalla, ya escalada a su resolución real
+      const viewport = document.createElement('div');
+      viewport.style.width = geo.myLogicalW + 'px';
+      viewport.style.height = geo.myLogicalH + 'px';
+      viewport.style.flexShrink = '0';
+      viewport.style.overflow = 'hidden';
+      viewport.style.transformOrigin = '0 0';
+      viewport.style.transform = 'scale(' + geo.scaleX.toFixed(4) + ',' + geo.scaleY.toFixed(4) + ')';
+
       const canvas = document.createElement('div');
       canvas.className = 'wall-canvas';
       canvas.style.width = containerW + 'px';
@@ -379,7 +409,8 @@
       canvas.style.flexShrink = '0'; // si no, flexbox lo encoge al hueco de esta única pantalla
       canvas.style.transform = 'translate(-' + geo.offsetX.toFixed(2) + 'px, -' + geo.offsetY.toFixed(2) + 'px)';
       canvas.appendChild(layers);
-      wrap.appendChild(canvas);
+      viewport.appendChild(canvas);
+      wrap.appendChild(viewport);
     } else {
       const rotor = document.createElement('div');
       rotor.className = 'text-rotor';
