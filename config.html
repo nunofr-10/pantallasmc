@@ -57,6 +57,36 @@
   #setup p{font-size:12.5px;line-height:1.7;color:var(--text);margin:0 0 10px;}
   #setup ol{margin:0 0 10px;padding-left:20px;font-size:12.5px;line-height:1.8;color:var(--text);}
   #setup code{color:var(--amber);}
+
+  .map-canvas{
+    position:relative;border:1px solid var(--line);border-radius:4px;overflow:auto;max-width:100%;
+    min-height:70px;background-color:#000;
+    background-image:linear-gradient(0deg, rgba(255,255,255,.05) 1px, transparent 1px),
+                      linear-gradient(90deg, rgba(255,255,255,.05) 1px, transparent 1px);
+  }
+  .map-box{
+    position:absolute;box-sizing:border-box;border:1px solid var(--signal);border-radius:2px;
+    background:rgba(61,220,132,.14);color:var(--text);font-size:10px;line-height:1.3;
+    display:flex;align-items:center;justify-content:center;text-align:center;padding:2px;
+    cursor:move;user-select:none;overflow:hidden;
+  }
+  .map-box.off{border-color:#7a2e2e;background:rgba(224,97,107,.10);color:var(--dim);}
+  .map-box.mine{box-shadow:0 0 0 2px var(--amber) inset;}
+  .screen-head,.screen-row{
+    display:grid;grid-template-columns:1fr 44px 44px 44px 44px 26px 24px;gap:5px;align-items:center;
+  }
+  .screen-head{font-size:9.5px;color:var(--dim);margin-top:12px;text-align:center;}
+  .screen-head span:first-child{text-align:left;}
+  .screen-row{margin-top:6px;}
+  .screen-row input[type=text]{padding:7px 6px;font-size:11px;}
+  .screen-row input[type=number]{padding:7px 3px;font-size:11px;text-align:center;}
+  .screen-row input[type=checkbox]{width:16px;height:16px;accent-color:var(--signal);justify-self:center;}
+  .screen-row button{
+    width:100%;height:26px;padding:0;background:transparent;border:1px solid var(--line);color:var(--dim);
+    font-size:13px;line-height:1;margin:0;
+  }
+  .screen-row button:hover{color:#e0616b;border-color:#e0616b;filter:none;}
+  #addScreen{background:transparent;border:1px dashed var(--line);color:var(--text);margin-top:12px;}
 </style>
 </head>
 <body>
@@ -74,6 +104,26 @@
       <li>En <b>Reglas</b>, pon <code>{"rules":{".read":true,".write":true}}</code> y publica.</li>
     </ol>
   </div>
+
+  <fieldset>
+    <legend>mapa de pantallas</legend>
+    <p class="hint" style="margin-top:0;">
+      Coloca aquí cada pantalla tal y como están unas respecto a otras en la partida (arrástralas, o ajusta los números),
+      con su tamaño en bloques de Minecraft. Sirve para poder apagar pantallas sueltas y para que el modo "repartir texto"
+      sepa qué trozo le toca a cada una — da igual que estén en fila, en columna o en una cuadrícula.
+    </p>
+    <div id="mapCanvas" class="map-canvas"></div>
+    <div class="screen-head">
+      <span>id</span><span>X</span><span>Y</span><span>ancho</span><span>alto</span><span>on</span><span></span>
+    </div>
+    <div id="screenList"></div>
+    <button id="addScreen" type="button">+ Añadir pantalla</button>
+    <p class="hint">
+      X/Y = posición de la esquina superior izquierda en bloques; ancho/alto = tamaño en bloques (las tuyas son 15x4).
+      En WebDisplays, pon en la URL de cada pantalla <code>?id=</code> seguido del identificador que le hayas puesto aquí
+      (por ejemplo <code>index.html?id=pantalla1</code>), para que cada una sepa cuál es su sitio.
+    </p>
+  </fieldset>
 
   <fieldset>
     <legend>modo de pantalla</legend>
@@ -95,6 +145,8 @@
         <option value="image">Imagen</option>
         <option value="iframe">Página web genérica</option>
       </select>
+      <button id="restart" type="button" style="background:var(--amber);color:#241703;">Reiniciar vídeo en todas las pantallas</button>
+      <p class="hint">Úsalo si en alguna pantalla ha salido un anuncio antes del vídeo y se ha desincronizado: esto lo vuelve a poner desde el principio a la vez en todas, sin tener que tocar la URL.</p>
     </div>
 
     <div id="panelText" class="subpanel">
@@ -130,19 +182,13 @@
 
       <div class="check" style="margin-top:16px;">
         <input type="checkbox" id="wallEnabled" />
-        <label for="wallEnabled">Repartir el texto en varias pantallas seguidas (pared de pantallas)</label>
+        <label for="wallEnabled">Repartir el texto entre las pantallas del mapa (en vez de repetirlo igual en todas)</label>
       </div>
-      <div id="wallPanel" style="display:none;margin-top:10px;">
-        <label for="wallCount">Número de pantallas en la fila</label>
-        <input type="number" id="wallCount" min="2" step="1" value="4" />
-        <p class="hint">
-          Con esto activado, el texto deja de girar y se convierte en un único cartel ancho repartido entre todas
-          las pantallas de la fila (una porción continua en cada una, sin importar cuántas letras tenga cada trozo).<br><br>
-          Para que cada pantalla sepa qué trozo le toca, añade <code>?pos=0</code> a la URL de la primera pantalla
-          (la de más a la izquierda), <code>?pos=1</code> a la segunda, <code>?pos=2</code> a la tercera, etc. — todas
-          siguen apuntando al mismo <code>index.html</code>, solo cambia ese número al final.
-        </p>
-      </div>
+      <p id="wallHint" class="hint" style="display:none;">
+        Usa la posición y el tamaño de cada pantalla del <b>mapa de pantallas</b> de arriba para partir el texto en un
+        único cartel continuo (deja de girar y queda plano, recto de punta a punta). Hacen falta al menos 2 pantallas
+        dadas de alta ahí, cada una con su <code>?id=</code> puesto en WebDisplays.
+      </p>
     </div>
   </fieldset>
 
@@ -196,11 +242,149 @@
     const mode = $('mode').value;
     $('panelUrl').classList.toggle('show', mode === 'url');
     $('panelText').classList.toggle('show', mode === 'text');
-    $('wallPanel').style.display = $('wallEnabled').checked ? 'block' : 'none';
+    $('wallHint').style.display = $('wallEnabled').checked ? 'block' : 'none';
   }
   $('mode').addEventListener('change', updatePanels);
   $('wallEnabled').addEventListener('change', updatePanels);
   updatePanels();
+
+  // ---------------------------------------------------------------
+  // mapa de pantallas: posición/tamaño en bloques + activo/apagado
+  // ---------------------------------------------------------------
+  let screens = {};       // { id: {x,y,w,h,enabled} }
+  let screenOrder = [];   // para mantener el orden en el listado
+  let currentScale = 12, currentBounds = {minX:0,minY:0,maxX:20,maxY:8};
+
+  function uniqueId(base){
+    let n = 1, id = base + n;
+    while(screens[id]) { n++; id = base + n; }
+    return id;
+  }
+
+  function computeBounds(){
+    const ids = screenOrder.filter(function(id){ return screens[id]; });
+    if(!ids.length) return {minX:0,minY:0,maxX:20,maxY:8};
+    let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+    ids.forEach(function(id){
+      const s = screens[id];
+      minX = Math.min(minX, s.x); minY = Math.min(minY, s.y);
+      maxX = Math.max(maxX, s.x + s.w); maxY = Math.max(maxY, s.y + s.h);
+    });
+    return {minX:minX, minY:minY, maxX:maxX, maxY:maxY};
+  }
+
+  function repositionBox(id){
+    const s = screens[id];
+    const box = $('mapCanvas').querySelector('[data-id="' + CSS.escape(id) + '"]');
+    if(!s || !box) return;
+    box.style.left = ((s.x - currentBounds.minX) * currentScale + 8) + 'px';
+    box.style.top = ((s.y - currentBounds.minY) * currentScale + 8) + 'px';
+    box.style.width = Math.max(20, s.w * currentScale) + 'px';
+    box.style.height = Math.max(16, s.h * currentScale) + 'px';
+    box.classList.toggle('off', s.enabled === false);
+  }
+
+  function attachDrag(box, id){
+    box.addEventListener('mousedown', function(e){
+      if(e.button !== 0) return;
+      e.preventDefault();
+      const startX = e.clientX, startY = e.clientY;
+      const s = screens[id];
+      const origX = s.x, origY = s.y;
+      function onMove(ev){
+        const dxBlocks = Math.round((ev.clientX - startX) / currentScale);
+        const dyBlocks = Math.round((ev.clientY - startY) / currentScale);
+        s.x = Math.max(0, origX + dxBlocks);
+        s.y = Math.max(0, origY + dyBlocks);
+        const row = $('screenList').querySelector('[data-row="' + CSS.escape(id) + '"]');
+        if(row){ row.querySelector('.sX').value = s.x; row.querySelector('.sY').value = s.y; }
+        repositionBox(id);
+      }
+      function onUp(){
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        renderScreens(); // ahora sí, recalcula escala/límites con calma
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  }
+
+  function renderScreens(){
+    currentBounds = computeBounds();
+    const totalW = Math.max(1, currentBounds.maxX - currentBounds.minX);
+    const totalH = Math.max(1, currentBounds.maxY - currentBounds.minY);
+    currentScale = Math.max(5, Math.min(22, Math.floor(580 / totalW), Math.floor(150 / totalH)));
+
+    const canvas = $('mapCanvas');
+    canvas.style.width = (totalW * currentScale + 16) + 'px';
+    canvas.style.height = (totalH * currentScale + 16) + 'px';
+    canvas.style.backgroundSize = currentScale + 'px ' + currentScale + 'px';
+    canvas.innerHTML = '';
+
+    screenOrder.forEach(function(id){
+      if(!screens[id]) return;
+      const box = document.createElement('div');
+      box.className = 'map-box';
+      box.dataset.id = id;
+      box.textContent = id;
+      canvas.appendChild(box);
+      repositionBox(id);
+      attachDrag(box, id);
+    });
+
+    const list = $('screenList');
+    list.innerHTML = '';
+    screenOrder.forEach(function(id){
+      const s = screens[id];
+      if(!s) return;
+      const row = document.createElement('div');
+      row.className = 'screen-row';
+      row.dataset.row = id;
+      row.innerHTML =
+        '<input type="text" class="sId" value="' + id.replace(/"/g,'&quot;') + '">' +
+        '<input type="number" class="sX" value="' + s.x + '" min="0">' +
+        '<input type="number" class="sY" value="' + s.y + '" min="0">' +
+        '<input type="number" class="sW" value="' + s.w + '" min="1">' +
+        '<input type="number" class="sH" value="' + s.h + '" min="1">' +
+        '<input type="checkbox" class="sEnabled"' + (s.enabled !== false ? ' checked' : '') + '>' +
+        '<button type="button" class="sDelete" title="Eliminar">×</button>';
+      list.appendChild(row);
+
+      row.querySelector('.sX').addEventListener('input', function(){ s.x = Math.max(0, parseInt(this.value,10) || 0); repositionBox(id); });
+      row.querySelector('.sY').addEventListener('input', function(){ s.y = Math.max(0, parseInt(this.value,10) || 0); repositionBox(id); });
+      row.querySelector('.sW').addEventListener('input', function(){ s.w = Math.max(1, parseInt(this.value,10) || 1); repositionBox(id); });
+      row.querySelector('.sH').addEventListener('input', function(){ s.h = Math.max(1, parseInt(this.value,10) || 1); repositionBox(id); });
+      ['sX','sY','sW','sH'].forEach(function(cls){
+        row.querySelector('.' + cls).addEventListener('change', renderScreens);
+      });
+      row.querySelector('.sEnabled').addEventListener('change', function(){ s.enabled = this.checked; renderScreens(); });
+      row.querySelector('.sDelete').addEventListener('click', function(){
+        delete screens[id];
+        screenOrder = screenOrder.filter(function(x){ return x !== id; });
+        renderScreens();
+      });
+      row.querySelector('.sId').addEventListener('blur', function(){
+        const newId = this.value.trim().replace(/\s+/g, '-');
+        if(!newId || newId === id || screens[newId]){ this.value = id; return; }
+        screens[newId] = screens[id];
+        delete screens[id];
+        screenOrder = screenOrder.map(function(x){ return x === id ? newId : x; });
+        renderScreens();
+      });
+    });
+  }
+
+  $('addScreen').addEventListener('click', function(){
+    const id = uniqueId('pantalla');
+    const rightmost = screenOrder.reduce(function(mx, sid){
+      const s = screens[sid];
+      return s ? Math.max(mx, s.x + s.w) : mx;
+    }, 0);
+    screens[id] = { x: screenOrder.length ? rightmost : 0, y: 0, w: 15, h: 4, enabled: true };
+    screenOrder.push(id);
+    renderScreens();
+  });
 
   function fill(s){
     lastUrl = s.url || '';
@@ -220,7 +404,29 @@
     $('textSpeed').value = t.rotateSec || 8;
     const w = s.wall || {};
     $('wallEnabled').checked = !!w.enabled;
-    $('wallCount').value = w.count || 4;
+
+    if(s.screens && Object.keys(s.screens).length){
+      screens = {};
+      screenOrder = [];
+      Object.keys(s.screens).forEach(function(id){
+        const sc = s.screens[id];
+        screens[id] = { x: Number(sc.x)||0, y: Number(sc.y)||0, w: Math.max(1,Number(sc.w)||15), h: Math.max(1,Number(sc.h)||4), enabled: sc.enabled !== false };
+        screenOrder.push(id);
+      });
+    } else if(!s.screens){
+      // primera vez que se usa esta página: dejamos ya montadas tus 4 pantallas de 15x4 en fila
+      screens = {
+        pantalla1: { x:0,  y:0, w:15, h:4, enabled:true },
+        pantalla2: { x:15, y:0, w:15, h:4, enabled:true },
+        pantalla3: { x:30, y:0, w:15, h:4, enabled:true },
+        pantalla4: { x:45, y:0, w:15, h:4, enabled:true }
+      };
+      screenOrder = ['pantalla1','pantalla2','pantalla3','pantalla4'];
+    } else {
+      screens = {};
+      screenOrder = [];
+    }
+    renderScreens();
     updatePanels();
   }
 
@@ -229,24 +435,23 @@
       const res = await fetch(STATE_URL, {cache:'no-store'});
       if(res.ok){
         const raw = await res.text();
-        if(raw !== 'null') fill(JSON.parse(raw));
+        fill(raw !== 'null' ? JSON.parse(raw) : {});
+      } else {
+        fill({});
       }
       msg.textContent = 'Listo.';
     }catch(e){
+      fill({});
       msg.textContent = 'No se pudo conectar con la base de datos. Revisa DB_URL y las reglas de Firebase.';
       msg.classList.add('err');
     }
     $('save').disabled = false;
   }
 
-  $('save').addEventListener('click', async function(){
-    const mode = $('mode').value;
-    const url = $('url').value.trim();
-    const contentChanged = url !== lastUrl;
-
-    const body = {
-      mode: mode,
-      url: url,
+  function collectBody(){
+    return {
+      mode: $('mode').value,
+      url: $('url').value.trim(),
       type: $('type').value,
       flash: $('flashEnabled').checked,
       fSec: Math.max(0, parseFloat($('fSec').value) || 0),
@@ -260,24 +465,16 @@
         rotateSec: Math.max(0.5, parseFloat($('textSpeed').value) || 8)
       },
       wall: {
-        enabled: $('wallEnabled').checked,
-        count: Math.max(2, parseInt($('wallCount').value, 10) || 4)
-      }
+        enabled: $('wallEnabled').checked
+      },
+      screens: screens
     };
+  }
 
-    msg.textContent = 'Guardando…';
+  async function sendState(body, savingMsg, doneMsg){
+    msg.textContent = savingMsg;
     msg.classList.remove('ok','err');
     try{
-      if(contentChanged){
-        body.t0 = Date.now();
-      } else {
-        try{
-          const res = await fetch(STATE_URL, {cache:'no-store'});
-          const raw = res.ok ? await res.text() : 'null';
-          body.t0 = (raw !== 'null' && JSON.parse(raw).t0) ? JSON.parse(raw).t0 : Date.now();
-        }catch(e){ body.t0 = Date.now(); }
-      }
-
       const putRes = await fetch(STATE_URL, {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
@@ -285,13 +482,38 @@
       });
       if(!putRes.ok) throw new Error('HTTP ' + putRes.status);
 
-      lastUrl = url;
-      msg.textContent = 'Emitido a todas las pantallas.';
+      lastUrl = body.url;
+      msg.textContent = doneMsg;
       msg.classList.add('ok');
     }catch(e){
       msg.textContent = 'No se pudo guardar (' + e.message + '). Revisa DB_URL y las reglas de Firebase.';
       msg.classList.add('err');
     }
+  }
+
+  $('save').addEventListener('click', async function(){
+    const body = collectBody();
+    const contentChanged = body.url !== lastUrl;
+
+    if(contentChanged){
+      body.t0 = Date.now();
+    } else {
+      try{
+        const res = await fetch(STATE_URL, {cache:'no-store'});
+        const raw = res.ok ? await res.text() : 'null';
+        body.t0 = (raw !== 'null' && JSON.parse(raw).t0) ? JSON.parse(raw).t0 : Date.now();
+      }catch(e){ body.t0 = Date.now(); }
+    }
+
+    await sendState(body, 'Guardando…', 'Emitido a todas las pantallas.');
+  });
+
+  // pone el contenido actual (vídeo, imagen o web) otra vez desde el principio
+  // en todas las pantallas a la vez — sin tocar nada más de la configuración
+  $('restart').addEventListener('click', async function(){
+    const body = collectBody();
+    body.t0 = Date.now();
+    await sendState(body, 'Reiniciando…', 'Vídeo reiniciado en todas las pantallas.');
   });
 
   init();

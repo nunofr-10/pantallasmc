@@ -84,8 +84,8 @@
 
   const STATE_URL = DB_URL.replace(/\/$/, '') + '/estado.json';
 
-  // posición de esta pantalla dentro de una fila de varias (?pos=0 es la de más a la izquierda)
-  const SCREEN_POS = Math.max(0, parseInt(new URLSearchParams(location.search).get('pos'), 10) || 0);
+  // identificador de esta pantalla dentro del mapa que se define en config.html (?id=...)
+  const SCREEN_ID = new URLSearchParams(location.search).get('id') || '';
 
   const stage  = document.getElementById('stage');
   const idle   = document.getElementById('idle');
@@ -235,6 +235,42 @@
 
   const DEPTH_LAYERS = 10; // nº de capas que forman el grosor del texto en 3D
 
+  // a partir del mapa de pantallas (posición y tamaño en bloques de cada una),
+  // calcula el tamaño total del "cartel" conjunto y el trozo que le toca a ESTA
+  // pantalla dentro de él. Solo funciona si esta pantalla está dada de alta en
+  // el mapa (con su ?id=) junto con al menos otra más.
+  function computeMapGeometry(screens, mine){
+    if(!mine || !mine.w || !mine.h) return null;
+    const list = Object.keys(screens || {}).map(function(id){
+      return Object.assign({id: id}, screens[id]);
+    }).filter(function(sc){
+      return sc.enabled !== false && Number(sc.w) > 0 && Number(sc.h) > 0;
+    });
+    if(list.length < 2) return null;
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    list.forEach(function(sc){
+      const x = Number(sc.x) || 0, y = Number(sc.y) || 0;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x + Number(sc.w));
+      maxY = Math.max(maxY, y + Number(sc.h));
+    });
+
+    // cuántos píxeles reales representa un bloque en ESTA pantalla (su propio
+    // visor ocupa exactamente sus bloques de ancho/alto)
+    const pxPerBlockX = window.innerWidth / Number(mine.w);
+    const pxPerBlockY = window.innerHeight / Number(mine.h);
+    const myX = Number(mine.x) || 0, myY = Number(mine.y) || 0;
+
+    return {
+      canvasW: (maxX - minX) * pxPerBlockX,
+      canvasH: (maxY - minY) * pxPerBlockY,
+      offsetX: (myX - minX) * pxPerBlockX,
+      offsetY: (myY - minY) * pxPerBlockY
+    };
+  }
+
   // calcula, midiendo de verdad en el DOM, el mayor tamaño de fuente (px) que
   // cabe en un contenedor de containerW x containerH sin desbordar ni recortarse
   function fitFontSizePx(lines, font, weight, containerW, containerH){
@@ -256,7 +292,7 @@
     return Math.max(8, REF * scale);
   }
 
-  function mountText(t, wall){
+  function mountText(t, spreadEnabled, screens, mine){
     clearStage();
     stage.style.background = t.bg || '#000000';
     const durSec = Math.max(0.5, Number(t.rotateSec) || 8);
@@ -269,13 +305,14 @@
     const metal = t.metal !== false; // por defecto activado
     const weight = FONT_WEIGHTS[font] || 900;
 
-    const wallOn = !!(wall && wall.enabled && Number(wall.count) > 1);
-    const wallCount = wallOn ? Math.max(1, Math.round(Number(wall.count))) : 1;
+    const geo = spreadEnabled ? computeMapGeometry(screens, mine) : null;
+    const wallOn = !!geo;
     const oneW = window.innerWidth;
     const oneH = window.innerHeight;
-    const containerW = wallOn ? oneW * wallCount : oneW;
+    const containerW = wallOn ? geo.canvasW : oneW;
+    const containerH = wallOn ? geo.canvasH : oneH;
 
-    const fontPx = fitFontSizePx(lines, font, weight, containerW, oneH);
+    const fontPx = fitFontSizePx(lines, font, weight, containerW, containerH);
 
     function styleCommon(el){
       el.textContent = content;
@@ -324,23 +361,23 @@
     wrap.style.overflow = 'hidden';
 
     if(wallOn){
-      // "pared de pantallas": un único cartel ancho como la suma de todas las
-      // pantallas, del que cada pantalla solo enseña el trozo que le toca.
-      // Se mantiene un ligero giro fijo (sin animar) para que se note el
-      // grosor 3D sin que el efecto de rotación se rompa entre pantallas.
-      // Nota: aquí no se aplica el giro/inclinación 3D — con un cartel tan ancho
+      // mapa de pantallas: un único cartel del tamaño de todas las pantallas
+      // implicadas (en cualquier disposición, no solo en fila), del que cada
+      // pantalla solo enseña el trozo que le toca según su posición en bloques.
+      // Nota: aquí no se aplica el giro/inclinación 3D — con un cartel tan grande
       // (varias pantallas seguidas) la perspectiva deforma muchísimo los extremos,
       // así que en este modo el texto se ve plano (con el metalizado y el grosor
       // de las letras, pero sin el volumen del giro) para que quede recto de verdad
-      // de punta a punta.
+      // de punta a punta y de arriba a abajo.
       wrap.style.perspective = 'none';
-      wrap.style.justifyContent = 'flex-start'; // el lienzo se coloca desde el borde izquierdo, no centrado
+      wrap.style.justifyContent = 'flex-start';
+      wrap.style.alignItems = 'flex-start'; // el lienzo se coloca desde la esquina, no centrado
       const canvas = document.createElement('div');
       canvas.className = 'wall-canvas';
       canvas.style.width = containerW + 'px';
-      canvas.style.height = oneH + 'px';
-      canvas.style.flexShrink = '0'; // si no, flexbox lo encoge al ancho de esta única pantalla
-      canvas.style.transform = 'translateX(-' + (SCREEN_POS * oneW) + 'px)';
+      canvas.style.height = containerH + 'px';
+      canvas.style.flexShrink = '0'; // si no, flexbox lo encoge al hueco de esta única pantalla
+      canvas.style.transform = 'translate(-' + geo.offsetX.toFixed(2) + 'px, -' + geo.offsetY.toFixed(2) + 'px)';
       canvas.appendChild(layers);
       wrap.appendChild(canvas);
     } else {
@@ -372,6 +409,17 @@
 
   function applyState(s){
     lastState = s;
+    const screens = s.screens || {};
+    const mine = SCREEN_ID ? screens[SCREEN_ID] : null;
+
+    // pantalla apagada a mano desde el mapa: negro y nada más, sea cual sea el modo
+    if(mine && mine.enabled === false){
+      idle.style.display = 'none';
+      if(current !== 'off'){ clearStage(); current = 'off'; }
+      applyFlash(false, 0, 0);
+      return;
+    }
+
     const mode = s.mode || 'url';
     const hasUrl = mode === 'url' && !!(s.url && s.url.trim());
     const isActive = hasUrl || mode === 'black' || mode === 'text' || !!s.flash;
@@ -381,8 +429,9 @@
     if(mode === 'black'){
       if(current !== 'black'){ mountBlack(); current = 'black'; }
     } else if(mode === 'text' && s.text){
-      const key = 'text|' + JSON.stringify(s.text) + '|' + JSON.stringify(s.wall || null);
-      if(current !== key){ mountText(s.text, s.wall); current = key; }
+      const spread = !!(s.wall && s.wall.enabled);
+      const key = 'text|' + JSON.stringify(s.text) + '|' + spread + '|' + JSON.stringify(screens);
+      if(current !== key){ mountText(s.text, spread, screens, mine); current = key; }
     } else if(hasUrl){
       const key = s.url + '|' + s.type + '|' + s.t0;
       if(current !== key){ mountContent(s.url.trim(), s.type, s.t0); current = key; }
@@ -401,7 +450,9 @@
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(function(){
       if(lastState && lastState.mode === 'text' && lastState.text){
-        mountText(lastState.text, lastState.wall);
+        const screens = lastState.screens || {};
+        const mine = SCREEN_ID ? screens[SCREEN_ID] : null;
+        mountText(lastState.text, !!(lastState.wall && lastState.wall.enabled), screens, mine);
       }
     }, 200);
   });
