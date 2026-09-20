@@ -84,7 +84,7 @@
   const STATE_URL = DB_URL.replace(/\/$/, '') + '/estado.json';
 
   // identificador de esta pantalla dentro del mapa que se define en config.html (?id=...)
-  const SCREEN_ID = new URLSearchParams(location.search).get('id') || '';
+  const SCREEN_ID = (new URLSearchParams(location.search).get('id') || '').trim();
 
   const stage  = document.getElementById('stage');
   const idle   = document.getElementById('idle');
@@ -251,10 +251,15 @@
   // a su resolución real con un único transform: scale(...).
   function computeMapGeometry(screens, mine){
     if(!mine || !mine.w || !mine.h) return null;
+    // una pantalla con su propia configuración (botón "⚙" individual) queda
+    // fuera del reparto: ni muestra el texto general ni reserva hueco para él,
+    // así las que sí lo siguen calculan el cartel conjunto solo entre ellas
+    // (si no, el hueco de la pantalla personalizada quedaba vacío en medio del
+    // cartel de las demás, cortando el texto por donde no debía)
     const list = Object.keys(screens || {}).map(function(id){
       return Object.assign({id: id}, screens[id]);
     }).filter(function(sc){
-      return sc.enabled !== false && Number(sc.w) > 0 && Number(sc.h) > 0;
+      return sc.enabled !== false && !sc.cfg && Number(sc.w) > 0 && Number(sc.h) > 0;
     });
     if(list.length < 2) return null;
 
