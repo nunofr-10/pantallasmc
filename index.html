@@ -251,6 +251,12 @@
   // a su resolución real con un único transform: scale(...).
   function computeMapGeometry(screens, mine){
     if(!mine || !mine.w || !mine.h) return null;
+    // si el visor todavía no tiene un tamaño real válido (por ejemplo, justo
+    // al arrancar, antes de que el mod le asigne su resolución), no calculamos
+    // nada: mejor caer al texto girando normal (visible) que a un cartel de
+    // ancho/alto 0 (invisible, pantalla en negro). El listener de "resize" ya
+    // se encarga de recalcular en cuanto el visor tenga su tamaño de verdad.
+    if(!(window.innerWidth > 0) || !(window.innerHeight > 0)) return null;
     // una pantalla con su propia configuración (botón "⚙" individual) queda
     // fuera del reparto: ni muestra el texto general ni reserva hueco para él,
     // así las que sí lo siguen calculan el cartel conjunto solo entre ellas
@@ -275,18 +281,26 @@
     const myX = Number(mine.x) || 0, myY = Number(mine.y) || 0;
     const myW = Number(mine.w), myH = Number(mine.h);
 
+    // "k" convierte unidades lógicas fijas a píxeles reales de ESTA pantalla
+    // en concreto. Con esto, el tamaño y el recorte del cartel se calculan
+    // igual en todas las pantallas (en unidades fijas) y solo al final se
+    // pasan a píxeles reales con una simple multiplicación — nada de
+    // transforms anidados que un renderizador limitado pueda no aplicar bien.
+    const kX = window.innerWidth  / (myW * PX_PER_BLOCK);
+    const kY = window.innerHeight / (myH * PX_PER_BLOCK);
+
     return {
-      // lienzo conjunto y hueco de esta pantalla en unidades lógicas fijas
-      canvasW: (maxX - minX) * PX_PER_BLOCK,
-      canvasH: (maxY - minY) * PX_PER_BLOCK,
-      offsetX: (myX - minX) * PX_PER_BLOCK,
-      offsetY: (myY - minY) * PX_PER_BLOCK,
-      myLogicalW: myW * PX_PER_BLOCK,
-      myLogicalH: myH * PX_PER_BLOCK,
-      // factor para pasar de ese tamaño lógico al tamaño real del visor de
-      // esta pantalla en concreto (cada pantalla tiene el suyo, al final)
-      scaleX: window.innerWidth / (myW * PX_PER_BLOCK),
-      scaleY: window.innerHeight / (myH * PX_PER_BLOCK)
+      // tamaño lógico (fijo, igual en todas las pantallas) — solo para calcular
+      // con qué tamaño de letra encaja el texto de forma idéntica en todas
+      logicalW: (maxX - minX) * PX_PER_BLOCK,
+      logicalH: (maxY - minY) * PX_PER_BLOCK,
+      // ya convertido a píxeles reales de ESTA pantalla, listo para usar
+      // directamente en el DOM sin ningún transform adicional
+      canvasW: (maxX - minX) * PX_PER_BLOCK * kX,
+      canvasH: (maxY - minY) * PX_PER_BLOCK * kY,
+      offsetX: (myX - minX) * PX_PER_BLOCK * kX,
+      offsetY: (myY - minY) * PX_PER_BLOCK * kY,
+      kX: kX
     };
   }
 
@@ -328,12 +342,15 @@
     const wallOn = !!geo;
     const oneW = window.innerWidth;
     const oneH = window.innerHeight;
-    // en modo mapa, todo se calcula en unidades lógicas fijas (iguales en
-    // todas las pantallas); al final se escala una sola vez al tamaño real
-    const containerW = wallOn ? geo.canvasW : oneW;
-    const containerH = wallOn ? geo.canvasH : oneH;
 
-    const fontPx = fitFontSizePx(lines, font, weight, containerW, containerH);
+    // el tamaño de letra se calcula SIEMPRE en unidades lógicas fijas (iguales
+    // en todas las pantallas), para que todas decidan exactamente el mismo
+    // tamaño relativo; después se pasa a píxeles reales de esta pantalla con
+    // una simple multiplicación, sin transforms adicionales
+    const fitW = wallOn ? geo.logicalW : oneW;
+    const fitH = wallOn ? geo.logicalH : oneH;
+    const fontPxLogical = fitFontSizePx(lines, font, weight, fitW, fitH);
+    const fontPx = wallOn ? fontPxLogical * geo.kX : fontPxLogical;
 
     function styleCommon(el){
       el.textContent = content;
@@ -388,34 +405,23 @@
       // de las letras, pero sin el volumen del giro) para que quede recto de verdad
       // de punta a punta y de arriba a abajo.
       //
-      // Todo el cartel (tamaño, recorte y posición) se calcula en unidades
-      // lógicas fijas iguales en todas las pantallas (ver PX_PER_BLOCK) y solo
-      // al final se escala UNA vez al tamaño real de esta pantalla en concreto.
-      // Así, aunque cada visor del mod tenga una resolución real ligeramente
-      // distinta, el recorte de cada trozo del texto sigue coincidiendo exacto
-      // con el de las demás pantallas.
+      // Posición y tamaño del recorte se calculan en unidades lógicas fijas
+      // (iguales en todas las pantallas, ver PX_PER_BLOCK) y se convierten a
+      // píxeles reales de esta pantalla con una multiplicación directa — un
+      // único elemento con su ancho/alto real y un translate, sin capas de
+      // transform anidadas que un renderizador limitado pudiera no aplicar bien.
       wrap.style.perspective = 'none';
       wrap.style.justifyContent = 'flex-start';
       wrap.style.alignItems = 'flex-start'; // el lienzo se coloca desde la esquina, no centrado
 
-      // "ventana" del tamaño lógico de esta pantalla, ya escalada a su resolución real
-      const viewport = document.createElement('div');
-      viewport.style.width = geo.myLogicalW + 'px';
-      viewport.style.height = geo.myLogicalH + 'px';
-      viewport.style.flexShrink = '0';
-      viewport.style.overflow = 'hidden';
-      viewport.style.transformOrigin = '0 0';
-      viewport.style.transform = 'scale(' + geo.scaleX.toFixed(4) + ',' + geo.scaleY.toFixed(4) + ')';
-
       const canvas = document.createElement('div');
       canvas.className = 'wall-canvas';
-      canvas.style.width = containerW + 'px';
-      canvas.style.height = containerH + 'px';
+      canvas.style.width = geo.canvasW + 'px';
+      canvas.style.height = geo.canvasH + 'px';
       canvas.style.flexShrink = '0'; // si no, flexbox lo encoge al hueco de esta única pantalla
       canvas.style.transform = 'translate(-' + geo.offsetX.toFixed(2) + 'px, -' + geo.offsetY.toFixed(2) + 'px)';
       canvas.appendChild(layers);
-      viewport.appendChild(canvas);
-      wrap.appendChild(viewport);
+      wrap.appendChild(canvas);
     } else {
       const rotor = document.createElement('div');
       rotor.className = 'text-rotor';
@@ -472,9 +478,15 @@
     } else if(mode === 'text' && cfg.text){
       // repartir el texto entre pantallas solo tiene sentido para las que
       // siguen la configuración general; una pantalla con configuración
-      // propia se queda fuera del reparto
+      // propia se queda fuera del reparto y no debe depender para nada del
+      // mapa general: por eso el mapa de pantallas solo entra en la "llave"
+      // de recambio cuando realmente se está repartiendo. Si no, aunque el
+      // contenido ya estuviera correctamente aislado, cualquier cambio en el
+      // mapa (mover una pantalla, activar/desactivar el reparto general...)
+      // volvía a montar esta pantalla igualmente y se notaba como un salto
+      // o un reinicio del giro, sin que su propio contenido hubiera cambiado
       const spread = !usingOwn && !!(s.wall && s.wall.enabled);
-      const key = 'text|' + JSON.stringify(cfg.text) + '|' + spread + '|' + JSON.stringify(screens);
+      const key = 'text|' + JSON.stringify(cfg.text) + '|' + spread + (spread ? ('|' + JSON.stringify(screens)) : '');
       if(current !== key){ mountText(cfg.text, spread, screens, mine); current = key; }
     } else if(hasUrl){
       const key = cfg.url + '|' + cfg.type + '|' + cfg.t0;
@@ -512,8 +524,11 @@
       if(res.ok){
         const raw = await res.text();
         if(raw !== 'null' && raw !== lastRaw){
-          lastRaw = raw;
+          // el estado se marca como "visto" solo si se ha podido aplicar sin
+          // errores; si algo falla al montarlo, se reintenta en el siguiente
+          // sondeo en vez de quedarse atascado mostrando negro para siempre
           applyState(JSON.parse(raw));
+          lastRaw = raw;
         }
         idleStatus.textContent = raw === 'null' ? 'esperando primera configuración…' : 'en línea';
         idleStatus.classList.remove('off');
