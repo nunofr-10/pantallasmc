@@ -233,22 +233,13 @@
   };
 
   const DEPTH_LAYERS = 5; // nº de capas que forman el grosor del texto en 3D
-  const PX_PER_BLOCK = 100; // unidad lógica fija: igual en todas las pantallas,
-                             // así todas calculan exactamente la misma geometría
 
   // a partir del mapa de pantallas (posición y tamaño en bloques de cada una),
   // calcula el tamaño total del "cartel" conjunto y el trozo que le toca a ESTA
-  // pantalla dentro de él. Solo funciona si esta pantalla está dada de alta en
-  // el mapa (con su ?id=) junto con al menos otra más.
-  //
-  // Importante: esto se calcula SIEMPRE en unidades lógicas fijas (PX_PER_BLOCK),
-  // nunca con window.innerWidth/innerHeight. Si cada pantalla midiera con su
-  // propio viewport real, pequeñas diferencias entre visores (redondeos,
-  // distinta resolución del bloque del mod, etc.) hacían que el tamaño de
-  // fuente y el recorte no coincidieran exactamente entre pantallas y el texto
-  // se veía descuadrado/roto de una pantalla a otra. Con una unidad fija todas
-  // las pantallas calculan lo mismo, y al final cada una escala ese resultado
-  // a su resolución real con un único transform: scale(...).
+  // pantalla dentro de él, usando directamente la resolución real de ESTA
+  // pantalla (así el texto siempre aprovecha el máximo tamaño posible en ella).
+  // Solo funciona si esta pantalla está dada de alta en el mapa (con su ?id=)
+  // junto con al menos otra más.
   function computeMapGeometry(screens, mine){
     if(!mine || !mine.w || !mine.h) return null;
     // si el visor todavía no tiene un tamaño real válido (por ejemplo, justo
@@ -278,29 +269,17 @@
       maxY = Math.max(maxY, y + Number(sc.h));
     });
 
+    // cuántos píxeles reales representa un bloque en ESTA pantalla (su propio
+    // visor ocupa exactamente sus bloques de ancho/alto)
+    const pxPerBlockX = window.innerWidth / Number(mine.w);
+    const pxPerBlockY = window.innerHeight / Number(mine.h);
     const myX = Number(mine.x) || 0, myY = Number(mine.y) || 0;
-    const myW = Number(mine.w), myH = Number(mine.h);
-
-    // "k" convierte unidades lógicas fijas a píxeles reales de ESTA pantalla
-    // en concreto. Con esto, el tamaño y el recorte del cartel se calculan
-    // igual en todas las pantallas (en unidades fijas) y solo al final se
-    // pasan a píxeles reales con una simple multiplicación — nada de
-    // transforms anidados que un renderizador limitado pueda no aplicar bien.
-    const kX = window.innerWidth  / (myW * PX_PER_BLOCK);
-    const kY = window.innerHeight / (myH * PX_PER_BLOCK);
 
     return {
-      // tamaño lógico (fijo, igual en todas las pantallas) — solo para calcular
-      // con qué tamaño de letra encaja el texto de forma idéntica en todas
-      logicalW: (maxX - minX) * PX_PER_BLOCK,
-      logicalH: (maxY - minY) * PX_PER_BLOCK,
-      // ya convertido a píxeles reales de ESTA pantalla, listo para usar
-      // directamente en el DOM sin ningún transform adicional
-      canvasW: (maxX - minX) * PX_PER_BLOCK * kX,
-      canvasH: (maxY - minY) * PX_PER_BLOCK * kY,
-      offsetX: (myX - minX) * PX_PER_BLOCK * kX,
-      offsetY: (myY - minY) * PX_PER_BLOCK * kY,
-      kX: kX
+      canvasW: (maxX - minX) * pxPerBlockX,
+      canvasH: (maxY - minY) * pxPerBlockY,
+      offsetX: (myX - minX) * pxPerBlockX,
+      offsetY: (myY - minY) * pxPerBlockY
     };
   }
 
@@ -342,15 +321,12 @@
     const wallOn = !!geo;
     const oneW = window.innerWidth;
     const oneH = window.innerHeight;
+    const containerW = wallOn ? geo.canvasW : oneW;
+    const containerH = wallOn ? geo.canvasH : oneH;
 
-    // el tamaño de letra se calcula SIEMPRE en unidades lógicas fijas (iguales
-    // en todas las pantallas), para que todas decidan exactamente el mismo
-    // tamaño relativo; después se pasa a píxeles reales de esta pantalla con
-    // una simple multiplicación, sin transforms adicionales
-    const fitW = wallOn ? geo.logicalW : oneW;
-    const fitH = wallOn ? geo.logicalH : oneH;
-    const fontPxLogical = fitFontSizePx(lines, font, weight, fitW, fitH);
-    const fontPx = wallOn ? fontPxLogical * geo.kX : fontPxLogical;
+    // el tamaño de letra se ajusta directamente al tamaño real del cartel en
+    // ESTA pantalla, así siempre aprovecha el máximo posible
+    const fontPx = fitFontSizePx(lines, font, weight, containerW, containerH);
 
     function styleCommon(el){
       el.textContent = content;
@@ -405,11 +381,8 @@
       // de las letras, pero sin el volumen del giro) para que quede recto de verdad
       // de punta a punta y de arriba a abajo.
       //
-      // Posición y tamaño del recorte se calculan en unidades lógicas fijas
-      // (iguales en todas las pantallas, ver PX_PER_BLOCK) y se convierten a
-      // píxeles reales de esta pantalla con una multiplicación directa — un
-      // único elemento con su ancho/alto real y un translate, sin capas de
-      // transform anidadas que un renderizador limitado pudiera no aplicar bien.
+      // un único elemento con su ancho/alto real y un translate (sin capas de
+      // transform anidadas)
       wrap.style.perspective = 'none';
       wrap.style.justifyContent = 'flex-start';
       wrap.style.alignItems = 'flex-start'; // el lienzo se coloca desde la esquina, no centrado
