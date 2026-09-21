@@ -304,6 +304,53 @@
     return Math.max(8, REF * scale);
   }
 
+  // para el modo "repartir entre pantallas": el tamaño de letra se decide
+  // sobre todo por el alto disponible (para que las letras tengan una altura
+  // grande y legible, sin recortarse), y si el texto se queda corto para el
+  // ancho total del cartel (varias pantallas seguidas), se reparte el hueco
+  // sobrante como espacio extra ENTRE letras — así el texto llega de punta a
+  // punta ocupando todas las pantallas en grande, en vez de quedarse
+  // pequeño y apretado solo en el centro. Si el texto es largo y ya llena el
+  // ancho por sí solo, no hace falta estirar nada.
+  function fitWallText(lines, font, weight, containerW, containerH){
+    const REF = 200;
+    const probe = document.createElement('div');
+    // se mide SIN espaciado extra (letter-spacing:0) para tener el ancho de
+    // las letras "en bruto"; el espaciado final se añade aparte, calculado
+    // a mano, porque los navegadores lo aplican también detrás del último
+    // carácter — si no se tiene esto en cuenta, el texto sale más ancho de
+    // lo calculado y se descuadra hacia un lado
+    probe.style.cssText = 'position:fixed;left:-9999px;top:0;visibility:hidden;white-space:pre;' +
+      'line-height:1.15;font-size:' + REF + 'px;font-family:' + font + ';font-weight:' + weight + ';letter-spacing:0;';
+    document.body.appendChild(probe);
+    let maxLineW = 1, maxLineChars = 1;
+    lines.forEach(function(line){
+      const text = line || ' ';
+      probe.textContent = text;
+      maxLineW = Math.max(maxLineW, probe.scrollWidth);
+      maxLineChars = Math.max(maxLineChars, text.length);
+    });
+    const lineHeightAtRef = REF * 1.15;
+    const totalHeightAtRef = lineHeightAtRef * lines.length;
+    document.body.removeChild(probe);
+
+    const heightScale = (containerH * 0.82) / totalHeightAtRef;
+    const widthScale = (containerW * 0.92) / maxLineW; // por si el texto es tan largo que ya desborda el ancho
+    const scale = Math.min(heightScale, widthScale);
+    const fontPx = Math.max(8, REF * scale);
+
+    const bareW = maxLineW * scale; // ancho de las letras solas, ya al tamaño final, sin espaciado
+    const targetW = containerW * 0.92;
+    // el espaciado se aplica detrás de cada carácter, incluido el último,
+    // así que el nº de "huecos" reales es el nº de caracteres, no uno menos
+    const gaps = Math.max(1, maxLineChars);
+    const minSpacing = 0.02 * fontPx;
+    const neededSpacing = (targetW - bareW) / gaps;
+    const letterSpacingPx = Math.max(minSpacing, neededSpacing);
+
+    return { fontPx: fontPx, letterSpacingPx: letterSpacingPx };
+  }
+
   function mountText(t, spreadEnabled, screens, mine){
     clearStage();
     stage.style.background = t.bg || '#000000';
@@ -324,15 +371,25 @@
     const containerW = wallOn ? geo.canvasW : oneW;
     const containerH = wallOn ? geo.canvasH : oneH;
 
-    // el tamaño de letra se ajusta directamente al tamaño real del cartel en
-    // ESTA pantalla, así siempre aprovecha el máximo posible
-    const fontPx = fitFontSizePx(lines, font, weight, containerW, containerH);
+    // en modo "repartir" el tamaño se decide por el alto y, si el texto se
+    // queda corto de ancho, se separan las letras para que llegue a ocupar
+    // todas las pantallas del reparto en grande (ver fitWallText); en modo
+    // normal (una sola pantalla) se ajusta directamente al hueco disponible
+    let fontPx, letterSpacing;
+    if(wallOn){
+      const fit = fitWallText(lines, font, weight, containerW, containerH);
+      fontPx = fit.fontPx;
+      letterSpacing = fit.letterSpacingPx + 'px';
+    } else {
+      fontPx = fitFontSizePx(lines, font, weight, containerW, containerH);
+      letterSpacing = '0.02em';
+    }
 
     function styleCommon(el){
       el.textContent = content;
       el.style.fontFamily = font;
       el.style.fontWeight = weight;
-      el.style.letterSpacing = '0.02em';
+      el.style.letterSpacing = letterSpacing;
       el.style.fontSize = fontPx + 'px';
     }
 
