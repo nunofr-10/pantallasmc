@@ -118,7 +118,7 @@
 <body>
 <main>
   <h1>Configuración de señal</h1>
-  <p class="sub">Cambia lo que quieras: todas las pantallas abiertas en <b>index.html</b> se actualizan solas, sin que nadie recargue nada.</p>
+  <p class="sub">Cambia lo que quieras: todas las pantallas abiertas en <b>index.html</b> se actualizan solas, sin que nadie recargue nada. <a href="control.html" style="color:var(--signal);text-decoration:none;">🖥 Ver panel de control</a></p>
 
   <div id="setup" style="display:none">
     <p><b>Falta un paso previo:</b> esta página necesita la Database URL de un proyecto Firebase gratuito.</p>
@@ -243,10 +243,11 @@
           <label for="wallEnabled">Repartir el texto entre las pantallas del mapa (en vez de repetirlo igual en todas)</label>
         </div>
         <p id="wallHint" class="hint" style="display:none;">
-          Usa la posición y el tamaño de cada pantalla del <b>mapa de pantallas</b> para partir el texto en un
-          único cartel continuo (deja de girar y queda plano, recto de punta a punta). Hacen falta al menos 2 pantallas
-          dadas de alta ahí, cada una con su <code>?id=</code> puesto en WebDisplays, y que sigan la configuración
-          general (una pantalla con su propia configuración individual se queda fuera del reparto).
+          Usa la posición de cada pantalla en el <b>mapa de pantallas</b> (de izquierda a derecha) para repartir las
+          letras del texto entre ellas: cada una muestra su parte centrada y girando en 3D, igual que el resto.
+          Hacen falta al menos 2 pantallas dadas de alta ahí, cada una con su <code>?id=</code> puesto en
+          WebDisplays, y que sigan la configuración general (una pantalla con su propia configuración individual
+          se queda fuera del reparto).
         </p>
       </div>
     </div>

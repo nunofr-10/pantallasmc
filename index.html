@@ -24,7 +24,6 @@
     transform-style:preserve-3d;animation-name:spin360;animation-timing-function:linear;
     animation-iteration-count:infinite;padding:0 6vw;will-change:transform;
   }
-  .wall-canvas{display:flex;align-items:center;justify-content:center;transform-style:preserve-3d;}
   .text-layers{display:grid;transform-style:preserve-3d;}
   .text-layers span{
     grid-area:1 / 1;display:block;line-height:1.15;text-align:center;white-space:pre;
@@ -94,6 +93,28 @@
   let current = null;
   let flashLoopId = null;
 
+  // --- "logs" para control.html: cada pantalla informa de su propio estado
+  // en un nodo aparte (/logs/<id>), para no chocar nunca con el guardado de
+  // config.html (que siempre reescribe /estado.json entero). No se manda
+  // cada 1.5s sin más: solo cuando cambia el mensaje, o como mucho cada 4s
+  // para que control.html pueda ver que la pantalla sigue viva.
+  const LOGS_URL = SCREEN_ID ? (DB_URL.replace(/\/$/, '') + '/logs/' + encodeURIComponent(SCREEN_ID) + '.json') : null;
+  const LOG_HEARTBEAT_MS = 4000;
+  let lastLogSig = null, lastLogTs = 0;
+  function logStatus(status, msg){
+    if(!LOGS_URL) return;
+    const now = Date.now();
+    const sig = status + '|' + msg;
+    if(sig === lastLogSig && (now - lastLogTs) < LOG_HEARTBEAT_MS) return;
+    lastLogSig = sig;
+    lastLogTs = now;
+    fetch(LOGS_URL, {
+      method: 'PUT',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ts: now, status: status, msg: msg})
+    }).catch(function(){});
+  }
+
   function detectType(u){
     if(/youtu\.?be/i.test(u)) return 'youtube';
     if(/\.(mp4|webm|ogg|mov)(\?.*)?$/i.test(u)) return 'video';
@@ -123,6 +144,48 @@
     holder.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;';
     stage.appendChild(holder);
 
+    // detección de anuncios: YouTube no da un "estoy en un anuncio" directo,
+    // pero mientras se reproduce un anuncio, getVideoData() devuelve el id
+    // de ESE anuncio en vez del vídeo que pedimos — si no coinciden, es un
+    // anuncio. En ese caso tapamos la pantalla con un negro por encima (no
+    // podemos saltarlo) y lo avisamos en el panel de control.
+    let adOverlay = null;
+    let adActive = false;
+    function showAd(){
+      if(adOverlay) return;
+      adOverlay = document.createElement('div');
+      adOverlay.style.cssText = 'position:absolute;inset:0;background:#000;z-index:5;';
+      stage.appendChild(adOverlay);
+    }
+    function hideAd(){
+      if(adOverlay && adOverlay.parentNode) adOverlay.parentNode.removeChild(adOverlay);
+      adOverlay = null;
+    }
+    function checkAd(p){
+      try{
+        const data = p.getVideoData();
+        const playingId = data && data.video_id;
+        const isAd = !!(playingId && playingId !== id);
+        if(isAd && !adActive){
+          adActive = true;
+          showAd();
+          logStatus('ad', 'anuncio detectado — pantalla en negro');
+        } else if(!isAd && adActive){
+          adActive = false;
+          hideAd();
+          logStatus('ok', 'anuncio terminado — vídeo reanudado');
+        }
+        return isAd;
+      }catch(e){ return adActive; }
+    }
+    function tick(p){
+      const isAd = checkAd(p);
+      if(!isAd){
+        syncNow(p, t0);
+        logStatus('ok', 'vídeo sincronizado correctamente');
+      }
+    }
+
     function boot(){
       new YT.Player('yt-target', {
         videoId: id,
@@ -131,9 +194,10 @@
           onReady: function(e){
             e.target.mute();
             e.target.playVideo();
-            syncNow(e.target, t0);
-            setInterval(function(){ syncNow(e.target, t0); }, 5000);
-          }
+            tick(e.target);
+            setInterval(function(){ tick(e.target); }, 5000);
+          },
+          onStateChange: function(e){ checkAd(e.target); }
         }
       });
     }
@@ -165,6 +229,7 @@
         if(!dur) return;
         const elapsed = ((Date.now() - t0) / 1000) % dur;
         if(Math.abs(v.currentTime - elapsed) > 1) v.currentTime = elapsed;
+        logStatus('ok', 'vídeo sincronizado correctamente');
       }
       sync();
       v.play().catch(()=>{});
@@ -234,53 +299,44 @@
 
   const DEPTH_LAYERS = 5; // nº de capas que forman el grosor del texto en 3D
 
-  // a partir del mapa de pantallas (posición y tamaño en bloques de cada una),
-  // calcula el tamaño total del "cartel" conjunto y el trozo que le toca a ESTA
-  // pantalla dentro de él, usando directamente la resolución real de ESTA
-  // pantalla (así el texto siempre aprovecha el máximo tamaño posible en ella).
-  // Solo funciona si esta pantalla está dada de alta en el mapa (con su ?id=)
-  // junto con al menos otra más.
-  function computeMapGeometry(screens, mine){
-    if(!mine || !mine.w || !mine.h) return null;
-    // si el visor todavía no tiene un tamaño real válido (por ejemplo, justo
-    // al arrancar, antes de que el mod le asigne su resolución), no calculamos
-    // nada: mejor caer al texto girando normal (visible) que a un cartel de
-    // ancho/alto 0 (invisible, pantalla en negro). El listener de "resize" ya
-    // se encarga de recalcular en cuanto el visor tenga su tamaño de verdad.
-    if(!(window.innerWidth > 0) || !(window.innerHeight > 0)) return null;
-    // una pantalla con su propia configuración (botón "⚙" individual) queda
-    // fuera del reparto: ni muestra el texto general ni reserva hueco para él,
-    // así las que sí lo siguen calculan el cartel conjunto solo entre ellas
-    // (si no, el hueco de la pantalla personalizada quedaba vacío en medio del
-    // cartel de las demás, cortando el texto por donde no debía)
-    const list = Object.keys(screens || {}).map(function(id){
+  // pantallas que siguen la configuración general (sin "⚙" propio), en orden
+  // de izquierda a derecha y de arriba a abajo — ese orden es el que decide
+  // qué letra le toca a cada una en el modo "repartir"
+  function computeScreenSlots(screens){
+    return Object.keys(screens || {}).map(function(id){
       return Object.assign({id: id}, screens[id]);
     }).filter(function(sc){
       return sc.enabled !== false && !sc.cfg && Number(sc.w) > 0 && Number(sc.h) > 0;
+    }).sort(function(a, b){
+      const ax = Number(a.x) || 0, bx = Number(b.x) || 0;
+      if(ax !== bx) return ax - bx;
+      return (Number(a.y) || 0) - (Number(b.y) || 0);
     });
-    if(list.length < 2) return null;
+  }
 
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    list.forEach(function(sc){
-      const x = Number(sc.x) || 0, y = Number(sc.y) || 0;
-      minX = Math.min(minX, x);
-      minY = Math.min(minY, y);
-      maxX = Math.max(maxX, x + Number(sc.w));
-      maxY = Math.max(maxY, y + Number(sc.h));
-    });
-
-    // cuántos píxeles reales representa un bloque en ESTA pantalla (su propio
-    // visor ocupa exactamente sus bloques de ancho/alto)
-    const pxPerBlockX = window.innerWidth / Number(mine.w);
-    const pxPerBlockY = window.innerHeight / Number(mine.h);
-    const myX = Number(mine.x) || 0, myY = Number(mine.y) || 0;
-
-    return {
-      canvasW: (maxX - minX) * pxPerBlockX,
-      canvasH: (maxY - minY) * pxPerBlockY,
-      offsetX: (myX - minX) * pxPerBlockX,
-      offsetY: (myY - minY) * pxPerBlockY
-    };
+  // reparte los caracteres de "content" en "totalSlots" trozos, lo más igual
+  // posible y SIN partir nunca una letra por la mitad: si hay menos letras
+  // que pantallas, las que sobran se quedan vacías (en negro); si hay más
+  // letras que pantallas, algunas llevan más de una letra seguida — nunca un
+  // trocito suelto de una letra como pasaba antes al recortar un cartel
+  // continuo por coordenadas.
+  function splitTextForSlots(content, totalSlots){
+    const chars = content.replace(/\n/g, ' ').split('');
+    const M = chars.length;
+    const N = Math.max(1, totalSlots);
+    const chunks = [];
+    if(M <= N){
+      for(let i = 0; i < N; i++) chunks.push(i < M ? chars[i] : '');
+    } else {
+      const per = Math.floor(M / N), extra = M % N;
+      let pos = 0;
+      for(let i = 0; i < N; i++){
+        const len = per + (i < extra ? 1 : 0);
+        chunks.push(chars.slice(pos, pos + len).join(''));
+        pos += len;
+      }
+    }
+    return chunks;
   }
 
   // calcula, midiendo de verdad en el DOM, el mayor tamaño de fuente (px) que
@@ -304,92 +360,41 @@
     return Math.max(8, REF * scale);
   }
 
-  // para el modo "repartir entre pantallas": el tamaño de letra se decide
-  // sobre todo por el alto disponible (para que las letras tengan una altura
-  // grande y legible, sin recortarse), y si el texto se queda corto para el
-  // ancho total del cartel (varias pantallas seguidas), se reparte el hueco
-  // sobrante como espacio extra ENTRE letras — así el texto llega de punta a
-  // punta ocupando todas las pantallas en grande, en vez de quedarse
-  // pequeño y apretado solo en el centro. Si el texto es largo y ya llena el
-  // ancho por sí solo, no hace falta estirar nada.
-  function fitWallText(lines, font, weight, containerW, containerH){
-    const REF = 200;
-    const probe = document.createElement('div');
-    // se mide SIN espaciado extra (letter-spacing:0) para tener el ancho de
-    // las letras "en bruto"; el espaciado final se añade aparte, calculado
-    // a mano, porque los navegadores lo aplican también detrás del último
-    // carácter — si no se tiene esto en cuenta, el texto sale más ancho de
-    // lo calculado y se descuadra hacia un lado
-    probe.style.cssText = 'position:fixed;left:-9999px;top:0;visibility:hidden;white-space:pre;' +
-      'line-height:1.15;font-size:' + REF + 'px;font-family:' + font + ';font-weight:' + weight + ';letter-spacing:0;';
-    document.body.appendChild(probe);
-    let maxLineW = 1, maxLineChars = 1;
-    lines.forEach(function(line){
-      const text = line || ' ';
-      probe.textContent = text;
-      maxLineW = Math.max(maxLineW, probe.scrollWidth);
-      maxLineChars = Math.max(maxLineChars, text.length);
-    });
-    const lineHeightAtRef = REF * 1.15;
-    const totalHeightAtRef = lineHeightAtRef * lines.length;
-    document.body.removeChild(probe);
-
-    const heightScale = (containerH * 0.82) / totalHeightAtRef;
-    const widthScale = (containerW * 0.92) / maxLineW; // por si el texto es tan largo que ya desborda el ancho
-    const scale = Math.min(heightScale, widthScale);
-    const fontPx = Math.max(8, REF * scale);
-
-    const bareW = maxLineW * scale; // ancho de las letras solas, ya al tamaño final, sin espaciado
-    const targetW = containerW * 0.92;
-    // el espaciado se aplica detrás de cada carácter, incluido el último,
-    // así que el nº de "huecos" reales es el nº de caracteres, no uno menos
-    const gaps = Math.max(1, maxLineChars);
-    const minSpacing = 0.02 * fontPx;
-    const neededSpacing = (targetW - bareW) / gaps;
-    const letterSpacingPx = Math.max(minSpacing, neededSpacing);
-
-    return { fontPx: fontPx, letterSpacingPx: letterSpacingPx };
-  }
-
   function mountText(t, spreadEnabled, screens, mine){
     clearStage();
     stage.style.background = t.bg || '#000000';
     const durSec = Math.max(0.5, Number(t.rotateSec) || 8);
     const delay = -((Date.now() % (durSec*1000)) / 1000);
 
-    const content = t.content || '';
+    // en modo "repartir": cada pantalla decide qué letra (o letras) le tocan
+    // según su posición en el mapa, y a partir de ahí se comporta exactamente
+    // como una pantalla normal — la muestra centrada, a su tamaño máximo y
+    // girando en 3D. Al no depender de recortar un cartel compartido, no hay
+    // forma de que una letra quede partida por un borde de pantalla.
+    let content = t.content || '';
+    if(spreadEnabled && mine){
+      const slots = computeScreenSlots(screens);
+      const idx = slots.findIndex(function(sc){ return sc.id === SCREEN_ID; });
+      if(slots.length >= 2 && idx !== -1){
+        content = splitTextForSlots(t.content || '', slots.length)[idx];
+      }
+    }
+
     const lines = content.split('\n');
     const base = t.color || '#e5e9ee';
     const font = t.font || "'Orbitron',sans-serif";
     const metal = t.metal !== false; // por defecto activado
     const weight = FONT_WEIGHTS[font] || 900;
 
-    const geo = spreadEnabled ? computeMapGeometry(screens, mine) : null;
-    const wallOn = !!geo;
-    const oneW = window.innerWidth;
-    const oneH = window.innerHeight;
-    const containerW = wallOn ? geo.canvasW : oneW;
-    const containerH = wallOn ? geo.canvasH : oneH;
-
-    // en modo "repartir" el tamaño se decide por el alto y, si el texto se
-    // queda corto de ancho, se separan las letras para que llegue a ocupar
-    // todas las pantallas del reparto en grande (ver fitWallText); en modo
-    // normal (una sola pantalla) se ajusta directamente al hueco disponible
-    let fontPx, letterSpacing;
-    if(wallOn){
-      const fit = fitWallText(lines, font, weight, containerW, containerH);
-      fontPx = fit.fontPx;
-      letterSpacing = fit.letterSpacingPx + 'px';
-    } else {
-      fontPx = fitFontSizePx(lines, font, weight, containerW, containerH);
-      letterSpacing = '0.02em';
-    }
+    const containerW = window.innerWidth;
+    const containerH = window.innerHeight;
+    const fontPx = fitFontSizePx(lines, font, weight, containerW, containerH);
 
     function styleCommon(el){
       el.textContent = content;
       el.style.fontFamily = font;
       el.style.fontWeight = weight;
-      el.style.letterSpacing = letterSpacing;
+      el.style.letterSpacing = '0.02em';
       el.style.fontSize = fontPx + 'px';
     }
 
@@ -428,38 +433,14 @@
     wrap.className = 'text-stage';
     wrap.style.overflow = 'hidden';
 
-    if(wallOn){
-      // mapa de pantallas: un único cartel del tamaño de todas las pantallas
-      // implicadas (en cualquier disposición, no solo en fila), del que cada
-      // pantalla solo enseña el trozo que le toca según su posición en bloques.
-      // Nota: aquí no se aplica el giro/inclinación 3D — con un cartel tan grande
-      // (varias pantallas seguidas) la perspectiva deforma muchísimo los extremos,
-      // así que en este modo el texto se ve plano (con el metalizado y el grosor
-      // de las letras, pero sin el volumen del giro) para que quede recto de verdad
-      // de punta a punta y de arriba a abajo.
-      //
-      // un único elemento con su ancho/alto real y un translate (sin capas de
-      // transform anidadas)
-      wrap.style.perspective = 'none';
-      wrap.style.justifyContent = 'flex-start';
-      wrap.style.alignItems = 'flex-start'; // el lienzo se coloca desde la esquina, no centrado
-
-      const canvas = document.createElement('div');
-      canvas.className = 'wall-canvas';
-      canvas.style.width = geo.canvasW + 'px';
-      canvas.style.height = geo.canvasH + 'px';
-      canvas.style.flexShrink = '0'; // si no, flexbox lo encoge al hueco de esta única pantalla
-      canvas.style.transform = 'translate(-' + geo.offsetX.toFixed(2) + 'px, -' + geo.offsetY.toFixed(2) + 'px)';
-      canvas.appendChild(layers);
-      wrap.appendChild(canvas);
-    } else {
-      const rotor = document.createElement('div');
-      rotor.className = 'text-rotor';
-      rotor.style.animationDuration = durSec + 's';
-      rotor.style.animationDelay = delay + 's';
-      rotor.appendChild(layers);
-      wrap.appendChild(rotor);
-    }
+    // cada pantalla (tenga letra propia del reparto o el texto completo en
+    // modo normal) se muestra igual: centrada y girando en 3D
+    const rotor = document.createElement('div');
+    rotor.className = 'text-rotor';
+    rotor.style.animationDuration = durSec + 's';
+    rotor.style.animationDelay = delay + 's';
+    rotor.appendChild(layers);
+    wrap.appendChild(rotor);
 
     stage.appendChild(wrap);
   }
@@ -489,6 +470,7 @@
       idle.style.display = 'none';
       if(current !== 'off'){ clearStage(); current = 'off'; }
       applyFlash(false, 0, 0);
+      logStatus('off', 'apagada manualmente desde el mapa');
       return;
     }
 
@@ -505,6 +487,7 @@
 
     if(mode === 'black'){
       if(current !== 'black'){ mountBlack(); current = 'black'; }
+      logStatus('black', 'pantalla en negro');
     } else if(mode === 'text' && cfg.text){
       // repartir el texto entre pantallas solo tiene sentido para las que
       // siguen la configuración general; una pantalla con configuración
@@ -518,12 +501,23 @@
       const spread = !usingOwn && !!(s.wall && s.wall.enabled);
       const key = 'text|' + JSON.stringify(cfg.text) + '|' + spread + (spread ? ('|' + JSON.stringify(screens)) : '');
       if(current !== key){ mountText(cfg.text, spread, screens, mine); current = key; }
+      logStatus('ok', spread ? 'mostrando texto repartido entre pantallas' : 'mostrando texto');
     } else if(hasUrl){
       const key = cfg.url + '|' + cfg.type + '|' + cfg.t0;
-      if(current !== key){ mountContent(cfg.url.trim(), cfg.type, cfg.t0); current = key; }
-    } else if(current !== null){
-      clearStage();
-      current = null;
+      const kind = cfg.type || detectType(cfg.url.trim());
+      if(current !== key){
+        mountContent(cfg.url.trim(), cfg.type, cfg.t0);
+        current = key;
+        if(kind === 'youtube' || kind === 'video') logStatus('ok', 'cargando vídeo…');
+      }
+      // el vídeo (youtube/mp4) informa de su propio progreso (sincronizado /
+      // anuncio detectado) desde su bucle de sincronización; aquí solo
+      // cubrimos los tipos que no tienen ese bucle propio
+      if(kind === 'image') logStatus('ok', 'mostrando imagen');
+      else if(kind === 'iframe') logStatus('ok', 'mostrando página web');
+    } else {
+      if(current !== null){ clearStage(); current = null; }
+      logStatus('idle', 'sin señal de entrada');
     }
 
     applyFlash(!!s.flash, Number(s.fSec)||0, Number(s.fMs)||0);
@@ -562,13 +556,16 @@
         }
         idleStatus.textContent = raw === 'null' ? 'esperando primera configuración…' : 'en línea';
         idleStatus.classList.remove('off');
+        if(raw === 'null') logStatus('idle', 'esperando primera configuración…');
       } else {
         idleStatus.textContent = 'el servidor respondió con error (' + res.status + ')';
         idleStatus.classList.add('off');
+        logStatus('error', 'el servidor respondió con error (' + res.status + ')');
       }
     }catch(e){
       idleStatus.textContent = 'sin conexión, reintentando…';
       idleStatus.classList.add('off');
+      logStatus('offline', 'sin conexión, reintentando…');
     }
     setTimeout(poll, 1500);
   }
