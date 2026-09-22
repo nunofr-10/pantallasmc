@@ -149,8 +149,15 @@
     // de ESE anuncio en vez del vídeo que pedimos — si no coinciden, es un
     // anuncio. En ese caso tapamos la pantalla con un negro por encima (no
     // podemos saltarlo) y lo avisamos en el panel de control.
+    //
+    // Para evitar falsos positivos (que se ponga en negro sin haber anuncio
+    // de verdad, por ejemplo justo al cargar o en un instante suelto en el
+    // que el reproductor aún no ha actualizado sus datos), un desajuste
+    // aislado no cuenta: hacen falta DOS lecturas seguidas confirmando lo
+    // mismo, y solo se mira cuando el vídeo está realmente reproduciéndose.
     let adOverlay = null;
     let adActive = false;
+    let mismatchStreak = 0;
     function showAd(){
       if(adOverlay) return;
       adOverlay = document.createElement('div');
@@ -163,19 +170,27 @@
     }
     function checkAd(p){
       try{
+        const state = p.getPlayerState();
+        // -1 sin empezar, 0 terminado, 5 en cola: en esos momentos
+        // getVideoData() puede no reflejar todavía lo que se está viendo de
+        // verdad, así que no se usan para decidir si hay anuncio o no
+        if(state !== 1 && state !== 2 && state !== 3) return adActive;
+
         const data = p.getVideoData();
         const playingId = data && data.video_id;
-        const isAd = !!(playingId && playingId !== id);
-        if(isAd && !adActive){
+        const mismatch = !!(playingId && playingId !== id);
+        mismatchStreak = mismatch ? (mismatchStreak + 1) : 0;
+
+        if(mismatchStreak >= 2 && !adActive){
           adActive = true;
           showAd();
           logStatus('ad', 'anuncio detectado — pantalla en negro');
-        } else if(!isAd && adActive){
+        } else if(!mismatch && adActive){
           adActive = false;
           hideAd();
           logStatus('ok', 'anuncio terminado — vídeo reanudado');
         }
-        return isAd;
+        return adActive;
       }catch(e){ return adActive; }
     }
     function tick(p){
@@ -314,11 +329,11 @@
     });
   }
 
-  // reparte los caracteres de "content" en "totalSlots" trozos, lo más igual
-  // posible y SIN partir nunca una letra por la mitad: si hay menos letras
-  // que pantallas, se centran entre todas (las que sobran quedan vacías, en
-  // negro, repartidas a los dos lados en vez de amontonadas a la derecha); si
-  // hay más letras que pantallas, algunas llevan más de una letra seguida —
+  // reparte los caracteres de "content" en "totalSlots" trozos, cada uno con
+  // {ch, half}: "half" es null salvo en la letra central partida en dos (ver
+  // debajo). Si hay menos letras que pantallas, se centran entre todas (las
+  // que sobran quedan vacías, en negro, repartidas a los dos lados). Si hay
+  // más letras que pantallas, algunas llevan más de una letra seguida —
   // nunca un trocito suelto de una letra como pasaba antes al recortar un
   // cartel continuo por coordenadas.
   function splitTextForSlots(content, totalSlots){
@@ -327,17 +342,37 @@
     const N = Math.max(1, totalSlots);
     const chunks = [];
     if(M <= N){
-      const leftPad = Math.floor((N - M) / 2);
-      for(let i = 0; i < N; i++){
-        const charIdx = i - leftPad;
-        chunks.push((charIdx >= 0 && charIdx < M) ? chars[charIdx] : '');
+      const diff = N - M;
+      // cuando el número de pantallas y el de letras no "casan" de forma
+      // simétrica (diferencia impar) no hay manera de centrar el conjunto
+      // dejando todas las letras enteras: alguna queda descentrada medio
+      // hueco. Si además hay una letra justo en el centro del texto (largo
+      // impar), se parte esa letra por la mitad entre sus dos pantallas
+      // vecinas — así el cartel entero queda perfectamente centrado y el
+      // resto de letras se quedan enteras, sin tocar.
+      if(diff > 0 && diff % 2 === 1 && M % 2 === 1){
+        const half = (M - 1) / 2; // letras enteras a cada lado del centro
+        const midChar = chars[half];
+        const pad = (N - M - 1) / 2; // pantallas en negro a cada lado, ya simétricas
+        for(let i = 0; i < pad; i++) chunks.push({ ch: '', half: null });
+        for(let i = 0; i < half; i++) chunks.push({ ch: chars[i], half: null });
+        chunks.push({ ch: midChar, half: 'left' });
+        chunks.push({ ch: midChar, half: 'right' });
+        for(let i = half + 1; i < M; i++) chunks.push({ ch: chars[i], half: null });
+        for(let i = 0; i < pad; i++) chunks.push({ ch: '', half: null });
+      } else {
+        const leftPad = Math.floor(diff / 2);
+        for(let i = 0; i < N; i++){
+          const charIdx = i - leftPad;
+          chunks.push({ ch: (charIdx >= 0 && charIdx < M) ? chars[charIdx] : '', half: null });
+        }
       }
     } else {
       const per = Math.floor(M / N), extra = M % N;
       let pos = 0;
       for(let i = 0; i < N; i++){
         const len = per + (i < extra ? 1 : 0);
-        chunks.push(chars.slice(pos, pos + len).join(''));
+        chunks.push({ ch: chars.slice(pos, pos + len).join(''), half: null });
         pos += len;
       }
     }
@@ -345,8 +380,14 @@
   }
 
   // calcula, midiendo de verdad en el DOM, el mayor tamaño de fuente (px) que
-  // cabe en un contenedor de containerW x containerH sin desbordar ni recortarse
-  function fitFontSizePx(lines, font, weight, containerW, containerH){
+  // cabe en un contenedor de containerW x containerH sin desbordar ni recortarse.
+  // fillW/fillH (0-1) son cuánto de ese hueco se deja ocupar; con un margen
+  // mayor las letras quedan más separadas entre sí (útil en el modo repartir,
+  // donde cada letra vive en su propia pantalla, para que no se vean pegadas
+  // al borde y demasiado juntas entre pantallas contiguas).
+  function fitFontSizePx(lines, font, weight, containerW, containerH, fillW, fillH){
+    if(fillW === undefined) fillW = 0.92;
+    if(fillH === undefined) fillH = 0.82;
     const REF = 200;
     const probe = document.createElement('div');
     probe.style.cssText = 'position:fixed;left:-9999px;top:0;visibility:hidden;white-space:pre;' +
@@ -361,8 +402,22 @@
     const totalHeightAtRef = lineHeightAtRef * lines.length;
     document.body.removeChild(probe);
 
-    const scale = Math.min((containerW * 0.92) / maxLineW, (containerH * 0.82) / totalHeightAtRef);
+    const scale = Math.min((containerW * fillW) / maxLineW, (containerH * fillH) / totalHeightAtRef);
     return Math.max(8, REF * scale);
+  }
+
+  // ancho real (en px) que ocupa un texto ya puesto a un tamaño de fuente
+  // concreto — se usa para partir en dos mitades exactas la letra central
+  // cuando el número de pantallas y de letras no encajan de forma simétrica
+  function measureTextWidthPx(text, font, weight, fontPx){
+    const probe = document.createElement('div');
+    probe.style.cssText = 'position:fixed;left:-9999px;top:0;visibility:hidden;white-space:pre;' +
+      'line-height:1.15;font-size:' + fontPx + 'px;font-family:' + font + ';font-weight:' + weight + ';letter-spacing:0.02em;';
+    probe.textContent = text || ' ';
+    document.body.appendChild(probe);
+    const w = probe.scrollWidth;
+    document.body.removeChild(probe);
+    return w;
   }
 
   function mountText(t, spreadEnabled, screens, mine){
@@ -382,15 +437,18 @@
     // según su posición en el mapa, y a partir de ahí se comporta exactamente
     // como una pantalla normal — la muestra centrada y girando en 3D. Al no
     // depender de recortar un cartel compartido, no hay forma de que una
-    // letra quede partida por un borde de pantalla.
+    // letra quede partida por un borde de pantalla (salvo la letra central,
+    // ver splitTextForSlots, que se parte a propósito y de forma simétrica).
     let content = t.content || '';
+    let half = null; // 'left' | 'right' | null: si esta pantalla le toca solo media letra central
     let fontPx = null;
     if(spreadEnabled && mine){
       const slots = computeScreenSlots(screens);
       const idx = slots.findIndex(function(sc){ return sc.id === SCREEN_ID; });
       if(slots.length >= 2 && idx !== -1){
         const chunks = splitTextForSlots(t.content || '', slots.length);
-        content = chunks[idx];
+        content = chunks[idx].ch;
+        half = chunks[idx].half;
 
         // tamaño uniforme para todo el cartel: si cada pantalla maximizara su
         // propia letra dentro de su propio hueco, una pantalla físicamente
@@ -401,7 +459,8 @@
         // de esta pantalla según su propia densidad de píxeles por bloque),
         // probando además con el trozo MÁS ANCHO de todos — así ni una letra
         // estrecha ni una pantalla más grande de la cuenta quedan más
-        // grandes que el resto.
+        // grandes que el resto. Con un margen mayor (0.74/0.62 en vez del
+        // habitual 0.92/0.82) las letras quedan más separadas entre sí.
         const minBlockW = Math.min.apply(null, slots.map(function(sc){ return Number(sc.w) || 1; }));
         const minBlockH = Math.min.apply(null, slots.map(function(sc){ return Number(sc.h) || 1; }));
         const myBlockW = Number(mine.w) || 1, myBlockH = Number(mine.h) || 1;
@@ -410,8 +469,8 @@
 
         let minFit = Infinity;
         chunks.forEach(function(chunk){
-          if(!chunk) return;
-          const f = fitFontSizePx(chunk.split('\n'), font, weight, refW, refH);
+          if(!chunk.ch) return;
+          const f = fitFontSizePx(chunk.ch.split('\n'), font, weight, refW, refH, 0.74, 0.62);
           if(f < minFit) minFit = f;
         });
         fontPx = isFinite(minFit) ? minFit : null;
@@ -421,57 +480,85 @@
     const lines = content.split('\n');
     if(fontPx === null) fontPx = fitFontSizePx(lines, font, weight, containerW, containerH);
 
-    function styleCommon(el){
-      el.textContent = content;
-      el.style.fontFamily = font;
-      el.style.fontWeight = weight;
-      el.style.letterSpacing = '0.02em';
-      el.style.fontSize = fontPx + 'px';
-    }
-
-    // cara frontal: la que se lee de frente
-    const front = document.createElement('span');
-    styleCommon(front);
-    front.style.transform = 'translateZ(0.01px)'; // fuerza su propia capa de composición por encima del resto
-
-    if(metal){
-      front.style.backgroundImage = 'linear-gradient(180deg, ' + metallicGradient(base) + ')';
-      front.style.setProperty('-webkit-background-clip', 'text');
-      front.style.backgroundClip = 'text';
-      front.style.color = 'transparent';
-      front.style.setProperty('-webkit-text-fill-color', 'transparent');
-    } else {
-      front.style.color = base;
-    }
-
-    const layers = document.createElement('div');
-    layers.className = 'text-layers';
-    layers.appendChild(front);
-
-    // grosor real: capas apiladas hacia atrás en el eje Z, cada vez más oscuras
-    // (así se ve un lateral sólido, no solo una sombra pintada)
-    const totalDepth = fontPx * 0.16;
-    const step = totalDepth / DEPTH_LAYERS;
-    for(let i = 1; i <= DEPTH_LAYERS; i++){
-      const layer = document.createElement('span');
-      styleCommon(layer);
-      layer.style.transform = 'translateZ(-' + (step * i).toFixed(2) + 'px)';
-      layer.style.color = shadeColor(base, -0.075 * i);
-      layers.insertBefore(layer, front);
+    // construye la "letra" en 3D (cara frontal + capas de grosor) para el
+    // texto indicado, reutilizable tanto para el giro normal como para la
+    // mitad estática de una letra partida
+    function buildLayers(text){
+      function styleCommon(el){
+        el.textContent = text;
+        el.style.fontFamily = font;
+        el.style.fontWeight = weight;
+        el.style.letterSpacing = '0.02em';
+        el.style.fontSize = fontPx + 'px';
+      }
+      const front = document.createElement('span');
+      styleCommon(front);
+      front.style.transform = 'translateZ(0.01px)'; // fuerza su propia capa de composición por encima del resto
+      if(metal){
+        front.style.backgroundImage = 'linear-gradient(180deg, ' + metallicGradient(base) + ')';
+        front.style.setProperty('-webkit-background-clip', 'text');
+        front.style.backgroundClip = 'text';
+        front.style.color = 'transparent';
+        front.style.setProperty('-webkit-text-fill-color', 'transparent');
+      } else {
+        front.style.color = base;
+      }
+      const layersEl = document.createElement('div');
+      layersEl.className = 'text-layers';
+      layersEl.appendChild(front);
+      const totalDepth = fontPx * 0.16;
+      const step = totalDepth / DEPTH_LAYERS;
+      for(let i = 1; i <= DEPTH_LAYERS; i++){
+        const layer = document.createElement('span');
+        styleCommon(layer);
+        layer.style.transform = 'translateZ(-' + (step * i).toFixed(2) + 'px)';
+        layer.style.color = shadeColor(base, -0.075 * i);
+        layersEl.insertBefore(layer, front);
+      }
+      return layersEl;
     }
 
     const wrap = document.createElement('div');
     wrap.className = 'text-stage';
     wrap.style.overflow = 'hidden';
 
-    // cada pantalla (tenga letra propia del reparto o el texto completo en
-    // modo normal) se muestra igual: centrada y girando en 3D
-    const rotor = document.createElement('div');
-    rotor.className = 'text-rotor';
-    rotor.style.animationDuration = durSec + 's';
-    rotor.style.animationDelay = delay + 's';
-    rotor.appendChild(layers);
-    wrap.appendChild(rotor);
+    if(half){
+      // esta pantalla muestra solo la mitad (izquierda o derecha) de la
+      // letra central del reparto, para que el conjunto quede centrado de
+      // verdad. Mantener sincronizados dos giros 3D independientes en dos
+      // pantallas distintas no es viable (cada una anima por su cuenta, sin
+      // manera de garantizar que coincidan fotograma a fotograma), así que
+      // esta letra se queda fija en vez de girar — con el mismo aspecto
+      // metálico y grosor que el resto.
+      const charWidthPx = measureTextWidthPx(content, font, weight, fontPx);
+      // ".text-stage" ya es position:fixed;inset:0 (ocupa toda la pantalla),
+      // así que sirve tal cual de referencia para posicionar el recorte en
+      // absoluto, sin tener que tocar su "position" (cambiarlo a relative
+      // rompía el forzado a pantalla completa que da inset:0 y la dejaba con
+      // altura 0, porque su único hijo pasa a estar fuera del flujo normal)
+      // "left" muestra su mitad pegada al borde DERECHO de esta pantalla (la
+      // que da hacia la pantalla vecina donde sigue la otra mitad); "right"
+      // pegada al borde IZQUIERDO — así las dos mitades quedan exactamente
+      // donde se tocan las dos pantallas físicas, formando una letra entera
+      const clip = document.createElement('div');
+      clip.style.cssText = 'position:absolute;top:0;bottom:0;overflow:hidden;width:' + (charWidthPx / 2) + 'px;' +
+        (half === 'left' ? 'right:0;' : 'left:0;');
+      const inner = document.createElement('div');
+      inner.style.cssText = 'position:absolute;top:50%;width:' + charWidthPx + 'px;' +
+        'transform:translateY(-50%)' + (half === 'left' ? '' : ' translateX(-' + (charWidthPx / 2) + 'px)') + ';';
+      inner.appendChild(buildLayers(content));
+      clip.appendChild(inner);
+      wrap.appendChild(clip);
+    } else {
+      // pantalla normal (letra propia del reparto entera, o texto completo
+      // en modo normal): centrada y girando en 3D
+      const rotor = document.createElement('div');
+      rotor.className = 'text-rotor';
+      rotor.style.animationDuration = durSec + 's';
+      rotor.style.animationDelay = delay + 's';
+      rotor.appendChild(buildLayers(content));
+      wrap.appendChild(rotor);
+    }
 
     stage.appendChild(wrap);
   }
@@ -573,6 +660,25 @@
   });
 
   let lastRaw = null;
+
+  // vigilante: si por lo que sea el sondeo se queda colgado (por ejemplo un
+  // fetch() que en el navegador embebido del mod no llega nunca a resolverse,
+  // ni bien ni mal) esta pantalla dejaría de actualizarse para siempre sin
+  // que el propio bucle pueda darse cuenta. lastPollTick se actualiza cada
+  // vez que el sondeo TERMINA una vuelta (haya ido bien o mal); un temporizador
+  // aparte, independiente de ese bucle, comprueba que no lleve más de 10s sin
+  // moverse — justo el margen que usa el panel de control para avisar de "sin
+  // respuesta" — y si es así recarga la página entera para recuperarla. Una
+  // pantalla que sí está respondiendo con normalidad nunca llega a ese punto,
+  // así que esto no afecta a la reproducción de nada que esté funcionando bien
+  // (y si se recarga un vídeo, el propio sincronizado por tiempo real hace que
+  // retome donde tocaba, no desde el principio).
+  let lastPollTick = Date.now();
+  const WATCHDOG_MS = 10000;
+  setInterval(function(){
+    if(Date.now() - lastPollTick > WATCHDOG_MS) location.reload();
+  }, 2000);
+
   async function poll(){
     try{
       const res = await fetch(STATE_URL, {cache:'no-store'});
@@ -598,6 +704,7 @@
       idleStatus.classList.add('off');
       logStatus('offline', 'sin conexión, reintentando…');
     }
+    lastPollTick = Date.now();
     setTimeout(poll, 1500);
   }
   poll();
