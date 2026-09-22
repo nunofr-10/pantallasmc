@@ -174,14 +174,26 @@
       ids.forEach(function(id){
         const sc = screensMap[id];
         const entry = logs[id];
-        const age = entry ? (now - entry.ts) : Infinity;
-        const stale = !entry || age > STALE_MS;
 
-        let metaKey = entry ? entry.status : 'idle';
-        let label = entry ? entry.msg : 'nunca se ha conectado';
-        if(stale){
-          metaKey = 'offline';
-          label = entry ? ('sin respuesta (última señal hace ' + fmtAge(age) + ')') : 'nunca se ha conectado';
+        // sin ningún dato todavía no es lo mismo que "no conectada": puede
+        // llevar un rato sin que el primer aviso llegue a la base de datos
+        // (o puede que esta página simplemente aún no lo haya recibido), así
+        // que no se afirma nada negativo — solo cuando SÍ hubo un aviso y
+        // luego deja de llegar se puede decir de verdad que no responde.
+        let metaKey, label, age = null;
+        if(!entry){
+          metaKey = 'idle';
+          label = 'sin datos todavía';
+        } else {
+          age = now - entry.ts;
+          const stale = age > STALE_MS;
+          if(stale){
+            metaKey = 'offline';
+            label = 'sin respuesta (última señal hace ' + fmtAge(age) + ')';
+          } else {
+            metaKey = entry.status;
+            label = entry.msg;
+          }
         }
         const meta = STATUS_META[metaKey] || STATUS_META.idle;
 
@@ -201,7 +213,7 @@
             '<span class="scr-id">' + id + tag + '</span>' +
             '<div class="scr-msg ' + meta.cls + '">' + label + '</div>' +
           '</span>' +
-          '<span class="scr-age">' + (entry ? 'hace ' + fmtAge(age) : '—') + '</span>';
+          '<span class="scr-age">' + (age !== null ? 'hace ' + fmtAge(age) : '—') + '</span>';
         $('screenList').appendChild(row);
       });
     }

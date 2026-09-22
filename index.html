@@ -316,17 +316,22 @@
 
   // reparte los caracteres de "content" en "totalSlots" trozos, lo más igual
   // posible y SIN partir nunca una letra por la mitad: si hay menos letras
-  // que pantallas, las que sobran se quedan vacías (en negro); si hay más
-  // letras que pantallas, algunas llevan más de una letra seguida — nunca un
-  // trocito suelto de una letra como pasaba antes al recortar un cartel
-  // continuo por coordenadas.
+  // que pantallas, se centran entre todas (las que sobran quedan vacías, en
+  // negro, repartidas a los dos lados en vez de amontonadas a la derecha); si
+  // hay más letras que pantallas, algunas llevan más de una letra seguida —
+  // nunca un trocito suelto de una letra como pasaba antes al recortar un
+  // cartel continuo por coordenadas.
   function splitTextForSlots(content, totalSlots){
     const chars = content.replace(/\n/g, ' ').split('');
     const M = chars.length;
     const N = Math.max(1, totalSlots);
     const chunks = [];
     if(M <= N){
-      for(let i = 0; i < N; i++) chunks.push(i < M ? chars[i] : '');
+      const leftPad = Math.floor((N - M) / 2);
+      for(let i = 0; i < N; i++){
+        const charIdx = i - leftPad;
+        chunks.push((charIdx >= 0 && charIdx < M) ? chars[charIdx] : '');
+      }
     } else {
       const per = Math.floor(M / N), extra = M % N;
       let pos = 0;
@@ -366,29 +371,55 @@
     const durSec = Math.max(0.5, Number(t.rotateSec) || 8);
     const delay = -((Date.now() % (durSec*1000)) / 1000);
 
-    // en modo "repartir": cada pantalla decide qué letra (o letras) le tocan
-    // según su posición en el mapa, y a partir de ahí se comporta exactamente
-    // como una pantalla normal — la muestra centrada, a su tamaño máximo y
-    // girando en 3D. Al no depender de recortar un cartel compartido, no hay
-    // forma de que una letra quede partida por un borde de pantalla.
-    let content = t.content || '';
-    if(spreadEnabled && mine){
-      const slots = computeScreenSlots(screens);
-      const idx = slots.findIndex(function(sc){ return sc.id === SCREEN_ID; });
-      if(slots.length >= 2 && idx !== -1){
-        content = splitTextForSlots(t.content || '', slots.length)[idx];
-      }
-    }
-
-    const lines = content.split('\n');
     const base = t.color || '#e5e9ee';
     const font = t.font || "'Orbitron',sans-serif";
     const metal = t.metal !== false; // por defecto activado
     const weight = FONT_WEIGHTS[font] || 900;
-
     const containerW = window.innerWidth;
     const containerH = window.innerHeight;
-    const fontPx = fitFontSizePx(lines, font, weight, containerW, containerH);
+
+    // en modo "repartir": cada pantalla decide qué letra (o letras) le tocan
+    // según su posición en el mapa, y a partir de ahí se comporta exactamente
+    // como una pantalla normal — la muestra centrada y girando en 3D. Al no
+    // depender de recortar un cartel compartido, no hay forma de que una
+    // letra quede partida por un borde de pantalla.
+    let content = t.content || '';
+    let fontPx = null;
+    if(spreadEnabled && mine){
+      const slots = computeScreenSlots(screens);
+      const idx = slots.findIndex(function(sc){ return sc.id === SCREEN_ID; });
+      if(slots.length >= 2 && idx !== -1){
+        const chunks = splitTextForSlots(t.content || '', slots.length);
+        content = chunks[idx];
+
+        // tamaño uniforme para todo el cartel: si cada pantalla maximizara su
+        // propia letra dentro de su propio hueco, una pantalla físicamente
+        // más grande (o con más bloques) sacaría su letra más grande que las
+        // demás, rompiendo el efecto de cartel continuo. En vez de eso, el
+        // tamaño se calcula como si esta pantalla tuviera el hueco de la
+        // pantalla MÁS PEQUEÑA del reparto (convertido a los píxeles reales
+        // de esta pantalla según su propia densidad de píxeles por bloque),
+        // probando además con el trozo MÁS ANCHO de todos — así ni una letra
+        // estrecha ni una pantalla más grande de la cuenta quedan más
+        // grandes que el resto.
+        const minBlockW = Math.min.apply(null, slots.map(function(sc){ return Number(sc.w) || 1; }));
+        const minBlockH = Math.min.apply(null, slots.map(function(sc){ return Number(sc.h) || 1; }));
+        const myBlockW = Number(mine.w) || 1, myBlockH = Number(mine.h) || 1;
+        const refW = containerW * (minBlockW / myBlockW);
+        const refH = containerH * (minBlockH / myBlockH);
+
+        let minFit = Infinity;
+        chunks.forEach(function(chunk){
+          if(!chunk) return;
+          const f = fitFontSizePx(chunk.split('\n'), font, weight, refW, refH);
+          if(f < minFit) minFit = f;
+        });
+        fontPx = isFinite(minFit) ? minFit : null;
+      }
+    }
+
+    const lines = content.split('\n');
+    if(fontPx === null) fontPx = fitFontSizePx(lines, font, weight, containerW, containerH);
 
     function styleCommon(el){
       el.textContent = content;
