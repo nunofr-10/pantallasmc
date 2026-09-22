@@ -329,30 +329,6 @@
     });
   }
 
-  // reparte los caracteres de "content" en "totalSlots" trozos, uno seguido
-  // de otro empezando por la primera pantalla: si hay menos letras que
-  // pantallas, las que sobran quedan vacías (en negro) al final; si hay más
-  // letras que pantallas, algunas llevan más de una letra seguida. Cada
-  // letra siempre entera, nunca partida entre dos pantallas.
-  function splitTextForSlots(content, totalSlots){
-    const chars = content.replace(/\n/g, ' ').split('');
-    const M = chars.length;
-    const N = Math.max(1, totalSlots);
-    const chunks = [];
-    if(M <= N){
-      for(let i = 0; i < N; i++) chunks.push(i < M ? chars[i] : '');
-    } else {
-      const per = Math.floor(M / N), extra = M % N;
-      let pos = 0;
-      for(let i = 0; i < N; i++){
-        const len = per + (i < extra ? 1 : 0);
-        chunks.push(chars.slice(pos, pos + len).join(''));
-        pos += len;
-      }
-    }
-    return chunks;
-  }
-
   // calcula, midiendo de verdad en el DOM, el mayor tamaño de fuente (px) que
   // cabe en un contenedor de containerW x containerH sin desbordar ni recortarse.
   // fillW/fillH (0-1) son cuánto de ese hueco se deja ocupar; con un margen
@@ -393,47 +369,45 @@
     const containerW = window.innerWidth;
     const containerH = window.innerHeight;
 
-    // en modo "repartir": cada pantalla decide qué letra (o letras) le tocan
-    // según su posición en el mapa (seguidas desde la primera, sin partir
-    // ninguna letra), y se muestra fija, sin girar — mantener sincronizados
-    // varios giros 3D independientes en pantallas distintas no es viable
-    // (cada una anima por su cuenta, sin garantía de coincidir fotograma a
-    // fotograma), así que el conjunto se queda quieto para que se vea como
-    // un cartel de verdad. El texto normal (una sola pantalla) sigue girando
-    // como siempre.
+    // en modo "repartir": el texto es UN cartel único y continuo que se
+    // extiende por todas las pantallas del grupo, no letras sueltas cada una
+    // en su hueco. Se calcula el tamaño para que el texto completo quepa en
+    // el ancho/alto combinado de TODAS esas pantallas (medido en bloques del
+    // mapa, convertido a los píxeles reales de ESTA pantalla según su propia
+    // densidad de píxeles por bloque) y se centra ahí; esta pantalla solo
+    // muestra el trozo que le toca según su posición, como una ventana que
+    // se mueve sobre un cartel más grande. Si una letra cae justo en el
+    // borde entre dos pantallas, se parte por donde caiga — es lo que hace
+    // que el conjunto se vea como un cartel de verdad y no como letras
+    // sueltas con huecos entre ellas. Al no depender de un giro compartido
+    // (que no se puede sincronizar entre pantallas distintas) se queda
+    // quieto, sin girar; el texto normal en una sola pantalla sigue girando
+    // en 3D como siempre.
     let content = t.content || '';
     let fontPx = null;
-    if(spreadEnabled && mine){
+    let wallGeo = null; // {canvasW, canvasH, offsetXpx, offsetYpx} si se está repartiendo
+    if(spreadEnabled && mine && containerW > 0 && containerH > 0){
       const slots = computeScreenSlots(screens);
       const idx = slots.findIndex(function(sc){ return sc.id === SCREEN_ID; });
       if(slots.length >= 2 && idx !== -1){
-        const chunks = splitTextForSlots(t.content || '', slots.length);
-        content = chunks[idx];
-
-        // tamaño uniforme para todo el cartel: si cada pantalla maximizara su
-        // propia letra dentro de su propio hueco, una pantalla físicamente
-        // más grande (o con más bloques) sacaría su letra más grande que las
-        // demás, rompiendo el efecto de cartel continuo. En vez de eso, el
-        // tamaño se calcula como si esta pantalla tuviera el hueco de la
-        // pantalla MÁS PEQUEÑA del reparto (convertido a los píxeles reales
-        // de esta pantalla según su propia densidad de píxeles por bloque),
-        // probando además con el trozo MÁS ANCHO de todos — así ni una letra
-        // estrecha ni una pantalla más grande de la cuenta quedan más
-        // grandes que el resto. Con un margen mayor (0.74/0.62 en vez del
-        // habitual 0.92/0.82) las letras quedan más separadas entre sí.
-        const minBlockW = Math.min.apply(null, slots.map(function(sc){ return Number(sc.w) || 1; }));
-        const minBlockH = Math.min.apply(null, slots.map(function(sc){ return Number(sc.h) || 1; }));
+        const minX = Math.min.apply(null, slots.map(function(sc){ return Number(sc.x) || 0; }));
+        const maxX = Math.max.apply(null, slots.map(function(sc){ return (Number(sc.x) || 0) + (Number(sc.w) || 1); }));
+        const minY = Math.min.apply(null, slots.map(function(sc){ return Number(sc.y) || 0; }));
+        const maxY = Math.max.apply(null, slots.map(function(sc){ return (Number(sc.y) || 0) + (Number(sc.h) || 1); }));
+        const totalBlockW = Math.max(1, maxX - minX);
+        const totalBlockH = Math.max(1, maxY - minY);
         const myBlockW = Number(mine.w) || 1, myBlockH = Number(mine.h) || 1;
-        const refW = containerW * (minBlockW / myBlockW);
-        const refH = containerH * (minBlockH / myBlockH);
+        const pxPerBlockX = containerW / myBlockW;
+        const pxPerBlockY = containerH / myBlockH;
+        const canvasW = totalBlockW * pxPerBlockX;
+        const canvasH = totalBlockH * pxPerBlockY;
 
-        let minFit = Infinity;
-        chunks.forEach(function(chunk){
-          if(!chunk) return;
-          const f = fitFontSizePx(chunk.split('\n'), font, weight, refW, refH, 0.74, 0.62);
-          if(f < minFit) minFit = f;
-        });
-        fontPx = isFinite(minFit) ? minFit : null;
+        fontPx = fitFontSizePx(content.split('\n'), font, weight, canvasW, canvasH, 0.94, 0.86);
+        wallGeo = {
+          canvasW: canvasW, canvasH: canvasH,
+          offsetXpx: ((Number(mine.x) || 0) - minX) * pxPerBlockX,
+          offsetYpx: ((Number(mine.y) || 0) - minY) * pxPerBlockY
+        };
       }
     }
 
@@ -486,10 +460,34 @@
       // reparto entre varias pantallas: quieto, sin girar, para que el
       // conjunto se lea como un cartel único en vez de varias letras
       // girando cada una por su cuenta y sin poder ir sincronizadas
-      const still = document.createElement('div');
-      still.style.transformStyle = 'preserve-3d'; // mantiene el grosor/relieve visible aunque no gire
-      still.appendChild(buildLayers(content));
-      wrap.appendChild(still);
+      if(wallGeo){
+        // el cartel completo se dibuja UNA vez a tamaño del lienzo combinado
+        // (wallGeo.canvasW x canvasH) y se desplaza para que, recortado por
+        // el overflow:hidden de "wrap" (del tamaño de esta pantalla), se vea
+        // solo el trozo que le corresponde a esta pantalla según su posición
+        // en el grupo — como una ventana que se mueve sobre un cartel más
+        // grande, por eso las letras pueden quedar partidas justo donde cae
+        // el borde entre dos pantallas
+        const canvas = document.createElement('div');
+        canvas.style.position = 'absolute';
+        canvas.style.left = (-wallGeo.offsetXpx) + 'px';
+        canvas.style.top = (-wallGeo.offsetYpx) + 'px';
+        canvas.style.width = wallGeo.canvasW + 'px';
+        canvas.style.height = wallGeo.canvasH + 'px';
+        canvas.style.display = 'flex';
+        canvas.style.alignItems = 'center';
+        canvas.style.justifyContent = 'center';
+        canvas.style.transformStyle = 'preserve-3d';
+        canvas.appendChild(buildLayers(content));
+        wrap.appendChild(canvas);
+      } else {
+        // reserva (p.ej. solo esta pantalla activa, o aún sin resolución
+        // real medida): se ve el texto completo centrado, sin recortar
+        const still = document.createElement('div');
+        still.style.transformStyle = 'preserve-3d';
+        still.appendChild(buildLayers(content));
+        wrap.appendChild(still);
+      }
     } else {
       // texto normal en una sola pantalla: centrado y girando en 3D, como
       // siempre
