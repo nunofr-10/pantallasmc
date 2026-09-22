@@ -329,50 +329,24 @@
     });
   }
 
-  // reparte los caracteres de "content" en "totalSlots" trozos, cada uno con
-  // {ch, half}: "half" es null salvo en la letra central partida en dos (ver
-  // debajo). Si hay menos letras que pantallas, se centran entre todas (las
-  // que sobran quedan vacías, en negro, repartidas a los dos lados). Si hay
-  // más letras que pantallas, algunas llevan más de una letra seguida —
-  // nunca un trocito suelto de una letra como pasaba antes al recortar un
-  // cartel continuo por coordenadas.
+  // reparte los caracteres de "content" en "totalSlots" trozos, uno seguido
+  // de otro empezando por la primera pantalla: si hay menos letras que
+  // pantallas, las que sobran quedan vacías (en negro) al final; si hay más
+  // letras que pantallas, algunas llevan más de una letra seguida. Cada
+  // letra siempre entera, nunca partida entre dos pantallas.
   function splitTextForSlots(content, totalSlots){
     const chars = content.replace(/\n/g, ' ').split('');
     const M = chars.length;
     const N = Math.max(1, totalSlots);
     const chunks = [];
     if(M <= N){
-      const diff = N - M;
-      // cuando el número de pantallas y el de letras no "casan" de forma
-      // simétrica (diferencia impar) no hay manera de centrar el conjunto
-      // dejando todas las letras enteras: alguna queda descentrada medio
-      // hueco. Si además hay una letra justo en el centro del texto (largo
-      // impar), se parte esa letra por la mitad entre sus dos pantallas
-      // vecinas — así el cartel entero queda perfectamente centrado y el
-      // resto de letras se quedan enteras, sin tocar.
-      if(diff > 0 && diff % 2 === 1 && M % 2 === 1){
-        const half = (M - 1) / 2; // letras enteras a cada lado del centro
-        const midChar = chars[half];
-        const pad = (N - M - 1) / 2; // pantallas en negro a cada lado, ya simétricas
-        for(let i = 0; i < pad; i++) chunks.push({ ch: '', half: null });
-        for(let i = 0; i < half; i++) chunks.push({ ch: chars[i], half: null });
-        chunks.push({ ch: midChar, half: 'left' });
-        chunks.push({ ch: midChar, half: 'right' });
-        for(let i = half + 1; i < M; i++) chunks.push({ ch: chars[i], half: null });
-        for(let i = 0; i < pad; i++) chunks.push({ ch: '', half: null });
-      } else {
-        const leftPad = Math.floor(diff / 2);
-        for(let i = 0; i < N; i++){
-          const charIdx = i - leftPad;
-          chunks.push({ ch: (charIdx >= 0 && charIdx < M) ? chars[charIdx] : '', half: null });
-        }
-      }
+      for(let i = 0; i < N; i++) chunks.push(i < M ? chars[i] : '');
     } else {
       const per = Math.floor(M / N), extra = M % N;
       let pos = 0;
       for(let i = 0; i < N; i++){
         const len = per + (i < extra ? 1 : 0);
-        chunks.push({ ch: chars.slice(pos, pos + len).join(''), half: null });
+        chunks.push(chars.slice(pos, pos + len).join(''));
         pos += len;
       }
     }
@@ -406,20 +380,6 @@
     return Math.max(8, REF * scale);
   }
 
-  // ancho real (en px) que ocupa un texto ya puesto a un tamaño de fuente
-  // concreto — se usa para partir en dos mitades exactas la letra central
-  // cuando el número de pantallas y de letras no encajan de forma simétrica
-  function measureTextWidthPx(text, font, weight, fontPx){
-    const probe = document.createElement('div');
-    probe.style.cssText = 'position:fixed;left:-9999px;top:0;visibility:hidden;white-space:pre;' +
-      'line-height:1.15;font-size:' + fontPx + 'px;font-family:' + font + ';font-weight:' + weight + ';letter-spacing:0.02em;';
-    probe.textContent = text || ' ';
-    document.body.appendChild(probe);
-    const w = probe.scrollWidth;
-    document.body.removeChild(probe);
-    return w;
-  }
-
   function mountText(t, spreadEnabled, screens, mine){
     clearStage();
     stage.style.background = t.bg || '#000000';
@@ -434,21 +394,21 @@
     const containerH = window.innerHeight;
 
     // en modo "repartir": cada pantalla decide qué letra (o letras) le tocan
-    // según su posición en el mapa, y a partir de ahí se comporta exactamente
-    // como una pantalla normal — la muestra centrada y girando en 3D. Al no
-    // depender de recortar un cartel compartido, no hay forma de que una
-    // letra quede partida por un borde de pantalla (salvo la letra central,
-    // ver splitTextForSlots, que se parte a propósito y de forma simétrica).
+    // según su posición en el mapa (seguidas desde la primera, sin partir
+    // ninguna letra), y se muestra fija, sin girar — mantener sincronizados
+    // varios giros 3D independientes en pantallas distintas no es viable
+    // (cada una anima por su cuenta, sin garantía de coincidir fotograma a
+    // fotograma), así que el conjunto se queda quieto para que se vea como
+    // un cartel de verdad. El texto normal (una sola pantalla) sigue girando
+    // como siempre.
     let content = t.content || '';
-    let half = null; // 'left' | 'right' | null: si esta pantalla le toca solo media letra central
     let fontPx = null;
     if(spreadEnabled && mine){
       const slots = computeScreenSlots(screens);
       const idx = slots.findIndex(function(sc){ return sc.id === SCREEN_ID; });
       if(slots.length >= 2 && idx !== -1){
         const chunks = splitTextForSlots(t.content || '', slots.length);
-        content = chunks[idx].ch;
-        half = chunks[idx].half;
+        content = chunks[idx];
 
         // tamaño uniforme para todo el cartel: si cada pantalla maximizara su
         // propia letra dentro de su propio hueco, una pantalla físicamente
@@ -469,8 +429,8 @@
 
         let minFit = Infinity;
         chunks.forEach(function(chunk){
-          if(!chunk.ch) return;
-          const f = fitFontSizePx(chunk.ch.split('\n'), font, weight, refW, refH, 0.74, 0.62);
+          if(!chunk) return;
+          const f = fitFontSizePx(chunk.split('\n'), font, weight, refW, refH, 0.74, 0.62);
           if(f < minFit) minFit = f;
         });
         fontPx = isFinite(minFit) ? minFit : null;
@@ -481,8 +441,8 @@
     if(fontPx === null) fontPx = fitFontSizePx(lines, font, weight, containerW, containerH);
 
     // construye la "letra" en 3D (cara frontal + capas de grosor) para el
-    // texto indicado, reutilizable tanto para el giro normal como para la
-    // mitad estática de una letra partida
+    // texto indicado, reutilizable tanto para el giro normal como para el
+    // reparto estático
     function buildLayers(text){
       function styleCommon(el){
         el.textContent = text;
@@ -522,36 +482,17 @@
     wrap.className = 'text-stage';
     wrap.style.overflow = 'hidden';
 
-    if(half){
-      // esta pantalla muestra solo la mitad (izquierda o derecha) de la
-      // letra central del reparto, para que el conjunto quede centrado de
-      // verdad. Mantener sincronizados dos giros 3D independientes en dos
-      // pantallas distintas no es viable (cada una anima por su cuenta, sin
-      // manera de garantizar que coincidan fotograma a fotograma), así que
-      // esta letra se queda fija en vez de girar — con el mismo aspecto
-      // metálico y grosor que el resto.
-      const charWidthPx = measureTextWidthPx(content, font, weight, fontPx);
-      // ".text-stage" ya es position:fixed;inset:0 (ocupa toda la pantalla),
-      // así que sirve tal cual de referencia para posicionar el recorte en
-      // absoluto, sin tener que tocar su "position" (cambiarlo a relative
-      // rompía el forzado a pantalla completa que da inset:0 y la dejaba con
-      // altura 0, porque su único hijo pasa a estar fuera del flujo normal)
-      // "left" muestra su mitad pegada al borde DERECHO de esta pantalla (la
-      // que da hacia la pantalla vecina donde sigue la otra mitad); "right"
-      // pegada al borde IZQUIERDO — así las dos mitades quedan exactamente
-      // donde se tocan las dos pantallas físicas, formando una letra entera
-      const clip = document.createElement('div');
-      clip.style.cssText = 'position:absolute;top:0;bottom:0;overflow:hidden;width:' + (charWidthPx / 2) + 'px;' +
-        (half === 'left' ? 'right:0;' : 'left:0;');
-      const inner = document.createElement('div');
-      inner.style.cssText = 'position:absolute;top:50%;width:' + charWidthPx + 'px;' +
-        'transform:translateY(-50%)' + (half === 'left' ? '' : ' translateX(-' + (charWidthPx / 2) + 'px)') + ';';
-      inner.appendChild(buildLayers(content));
-      clip.appendChild(inner);
-      wrap.appendChild(clip);
+    if(spreadEnabled){
+      // reparto entre varias pantallas: quieto, sin girar, para que el
+      // conjunto se lea como un cartel único en vez de varias letras
+      // girando cada una por su cuenta y sin poder ir sincronizadas
+      const still = document.createElement('div');
+      still.style.transformStyle = 'preserve-3d'; // mantiene el grosor/relieve visible aunque no gire
+      still.appendChild(buildLayers(content));
+      wrap.appendChild(still);
     } else {
-      // pantalla normal (letra propia del reparto entera, o texto completo
-      // en modo normal): centrada y girando en 3D
+      // texto normal en una sola pantalla: centrado y girando en 3D, como
+      // siempre
       const rotor = document.createElement('div');
       rotor.className = 'text-rotor';
       rotor.style.animationDuration = durSec + 's';
